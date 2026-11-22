@@ -29,19 +29,19 @@ const mdArtifact: Artifact = {
   kind: "markdown",
   version: 1,
   status: "done",
-  created_at: "2026-11-21T00:00:00.000Z",
+  createdAt: "2026-11-21T00:00:00.000Z",
 };
 const diffArtifact: Artifact = {
   id: "art-diff",
   kind: "diff",
   version: 1,
   status: "done",
-  created_at: "2026-11-21T00:00:00.000Z",
+  createdAt: "2026-11-21T00:00:00.000Z",
 };
 
 const node: Node = {
   id: "node-1",
-  node_key: "custom",
+  nodeKey: "custom",
   type: "custom_def_key",
   kind: "custom_kind",
   status: "awaiting_approval",
@@ -159,7 +159,7 @@ describe("usage artifact renderer (task 21)", () => {
       kind: "usage",
       version: 1,
       status: "draft",
-      created_at: "2026-11-21T00:00:00.000Z",
+      createdAt: "2026-11-21T00:00:00.000Z",
     };
     const html = renderPanel((queryClient) => {
       queryClient.setQueryData(queryKeys.artifacts.detail(usageArtifact.id), {
@@ -194,7 +194,7 @@ describe("usage artifact renderer (task 21)", () => {
       kind: "usage",
       version: 1,
       status: "draft",
-      created_at: "2026-11-21T00:00:00.000Z",
+      createdAt: "2026-11-21T00:00:00.000Z",
     };
     const html = renderPanel((queryClient) => {
       queryClient.setQueryData(queryKeys.artifacts.detail(usageArtifact.id), {
@@ -213,7 +213,7 @@ describe("transcript artifact renderer (task 22)", () => {
     kind: "transcript",
     version: 1,
     status: "draft",
-    created_at: "2026-11-21T00:00:00.000Z",
+    createdAt: "2026-11-21T00:00:00.000Z",
   };
 
   const renderTranscript = (detail: Record<string, unknown>): string =>
@@ -270,7 +270,7 @@ describe("pipeline artifact renderer (task 18)", () => {
     kind: "pipeline",
     version: 1,
     status: "done",
-    created_at: "2026-11-21T00:00:00.000Z",
+    createdAt: "2026-11-21T00:00:00.000Z",
   };
 
   const renderPipeline = (detail: Record<string, unknown>): string =>
@@ -347,7 +347,7 @@ describe("review artifact renderer (task 19)", () => {
     kind: "review",
     version: 1,
     status: "done",
-    created_at: "2026-11-21T00:00:00.000Z",
+    createdAt: "2026-11-21T00:00:00.000Z",
   };
 
   const renderReview = (detail: Record<string, unknown>): string =>
@@ -392,7 +392,7 @@ describe("resolve artifact renderer (task 19)", () => {
     kind: "resolve",
     version: 1,
     status: "done",
-    created_at: "2026-11-21T00:00:00.000Z",
+    createdAt: "2026-11-21T00:00:00.000Z",
   };
 
   const renderResolve = (detail: Record<string, unknown>): string =>
@@ -438,7 +438,7 @@ describe("failed_output artifact renderer (task 20)", () => {
     kind: "failed_output",
     version: 1,
     status: "draft",
-    created_at: "2026-11-21T00:00:00.000Z",
+    createdAt: "2026-11-21T00:00:00.000Z",
   };
 
   const renderFailed = (detail: Record<string, unknown>): string =>
@@ -583,7 +583,7 @@ describe("generic declarative panel — in-flow reconfiguration (task 05)", () =
 describe("built-in PipelineView — unchanged after the PipelineStatusBody swap (task 18)", () => {
   const gateNode: Node = {
     ...node,
-    node_key: "ci",
+    nodeKey: "ci",
     type: "pipeline",
     kind: "builtin",
     status: FLOW_STATUS.FAILED,
@@ -592,7 +592,7 @@ describe("built-in PipelineView — unchanged after the PipelineStatusBody swap 
   };
   const gateFlow: FlowData = {
     ...flow,
-    mr_url: "https://git.example.com/o/r/-/merge_requests/1",
+    mrUrl: "https://git.example.com/o/r/-/merge_requests/1",
     branches: [],
   };
 

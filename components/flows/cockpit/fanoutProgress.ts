@@ -30,7 +30,7 @@ export function fanoutProgressOf(
 ): Record<string, FanoutProgress> {
   const out: Record<string, FanoutProgress> = {};
   for (const s of flow.planSteps ?? []) {
-    const sf = s.sub_flow;
+    const sf = s.subFlow;
     if (!sf?.parentNodeKey) continue;
     const e = (out[sf.parentNodeKey] ??= {
       total: 0,
@@ -45,7 +45,7 @@ export function fanoutProgressOf(
       sf.nodeStatus === FLOW_STATUS.FAILED ||
       (sf.mergeStatus && sf.mergeStatus !== "merged" && s.status !== FLOW_STATUS.DONE);
     const resolved =
-      s.status === FLOW_STATUS.DONE || sf.status === FLOW_STATUS.DONE || s.completed_by === "skipped";
+      s.status === FLOW_STATUS.DONE || sf.status === FLOW_STATUS.DONE || s.completedBy === "skipped";
     if (resolved) e.done++;
     else if (failed) e.state = FANOUT_STATE.FAILED;
     else {

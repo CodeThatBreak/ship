@@ -16,7 +16,7 @@ import { BUILTIN_TEMPLATE_ID, CATALOG_KEY } from "@/constants/nodeKind";
 
 const isStartNode = (node: EditorNode): boolean =>
   node.nodeTemplateId === BUILTIN_TEMPLATE_ID.START ||
-  (node.is_builtin && (node.catalog_name ?? "").toLowerCase() === CATALOG_KEY.START);
+  (node.isBuiltin && (node.catalogName ?? "").toLowerCase() === CATALOG_KEY.START);
 
 const pickInitialTab = (
   node: EditorNode,

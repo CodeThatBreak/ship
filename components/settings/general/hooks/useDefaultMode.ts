@@ -11,7 +11,7 @@ type MutationHandlers = {
 
 /**
  * Harness → mode cascade. Each save writes BOTH contract keys atomically
- * (`default_harness` + `default_execution_mode`) — a mode can never dangle on
+ * (`defaultHarness` + `defaultExecutionMode`) — a mode can never dangle on
  * a harness that doesn't offer it. The list is data-driven from
  * `settings.harnesses`; nothing is hardcoded to cloud/local.
  */
@@ -22,13 +22,13 @@ export function useDefaultMode(settings: Settings) {
   // `saveHarness`'s identity below (react-hooks/exhaustive-deps §2.5)
   const harnesses = useMemo(() => settings.harnesses ?? [], [settings.harnesses]);
   const selectedHarness =
-    harnesses.find((h) => h.key === settings.default_harness) ?? null;
+    harnesses.find((h) => h.key === settings.defaultHarness) ?? null;
 
   /** Save one mode of one harness (chip click). */
   const saveMode = useCallback(
     (key: string, value: string, handlers?: MutationHandlers) => {
       mutate(
-        { default_harness: key, default_execution_mode: value },
+        { defaultHarness: key, defaultExecutionMode: value },
         handlers,
       );
     },
@@ -41,12 +41,12 @@ export function useDefaultMode(settings: Settings) {
    *  key is written then. */
   const modeForHarness = useCallback(
     (h: Harness): string | null => {
-      if (h.modes.some((m) => m.value === settings.default_execution_mode && m.configured)) {
-        return settings.default_execution_mode;
+      if (h.modes.some((m) => m.value === settings.defaultExecutionMode && m.configured)) {
+        return settings.defaultExecutionMode;
       }
       return h.modes.find((m) => m.configured)?.value ?? null;
     },
-    [settings.default_execution_mode],
+    [settings.defaultExecutionMode],
   );
 
   /** Save a harness switch — harness + a usable mode, both in one PATCH. */
@@ -56,7 +56,7 @@ export function useDefaultMode(settings: Settings) {
       if (!h) return;
       const mode = modeForHarness(h);
       mutate(
-        mode ? { default_harness: key, default_execution_mode: mode } : { default_harness: key },
+        mode ? { defaultHarness: key, defaultExecutionMode: mode } : { defaultHarness: key },
         handlers,
       );
     },

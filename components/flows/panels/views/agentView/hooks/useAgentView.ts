@@ -42,7 +42,7 @@ export function useAgentView(flow: FlowData, node: Node): AgentViewModel {
   ];
   // plan fan-out: the per-step monitoring surface becomes its own tab when the
   // node fanned out (it used to sit above the artifacts)
-  const fannedOut = (flow.planSteps ?? []).some((s: PlanStepRow) => s.sub_flow != null);
+  const fannedOut = (flow.planSteps ?? []).some((s: PlanStepRow) => s.subFlow != null);
 
   const [selId, setSelId] = useState<string | null>(null);
   const [tab, setTab] = useState<string>(AGENT_VIEW_TAB.OUTPUT);

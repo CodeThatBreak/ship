@@ -40,8 +40,8 @@ describe("DepPolicyResolver", () => {
     fs.mkdirSync(npmHub, { recursive: true });
     fs.writeFileSync(path.join(npmHub, "package.json"), "{}");
     fs.writeFileSync(path.join(npmHub, "package-lock.json"), "{}");
-    expect(pol(npmHub, { skip_install: true }).source).toBe("override:skip_install");
-    expect(pol(npmHub, { install_command: " pnpm install " })).toMatchObject({
+    expect(pol(npmHub, { skipInstall: true }).source).toBe("override:skip_install");
+    expect(pol(npmHub, { installCommand: " pnpm install " })).toMatchObject({
       strategy: "command",
       command: "pnpm install",
     });

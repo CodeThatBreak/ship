@@ -22,7 +22,7 @@ export class SettingsService {
 
   /**
    * Class setting: hostname allowlist for template-authored http calls
-   * (`http_allowlist`, entries match the exact hostname or a subdomain of it).
+   * (`httpAllowlist`, entries match the exact hostname or a subdomain of it).
    * Empty = deny-by-default, per plan §4.4.
    */
   async httpAllowlist(): Promise<string[]> {
@@ -43,32 +43,32 @@ export class SettingsService {
   /** Apply a validated settings patch atomically (CR-048). */
   async update(patch: SettingsPatchBody): Promise<void> {
     await this.database.transaction(async (tx) => {
-            if (patch.cursor_api_key !== undefined) {
-              await this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key, tx);
+            if (patch.cursorApiKey !== undefined) {
+              await this.database.integrationSecrets.writeCursorApiKey(patch.cursorApiKey, tx);
             }
-            if (patch.default_harness !== undefined) {
-              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness, tx);
+            if (patch.defaultHarness !== undefined) {
+              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.defaultHarness, tx);
             }
-            if (patch.default_execution_mode !== undefined) {
-              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_EXECUTION_MODE, patch.default_execution_mode, tx);
+            if (patch.defaultExecutionMode !== undefined) {
+              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_EXECUTION_MODE, patch.defaultExecutionMode, tx);
             }
-            if (patch.default_model !== undefined) {
+            if (patch.defaultModel !== undefined) {
               await this.database.setSetting(
                           SETTINGS_KEYS.DEFAULT_MODEL,
-                          normalizeModelSpec(patch.default_model.trim()),
+                          normalizeModelSpec(patch.defaultModel.trim()),
                           tx,
                         );
             }
-            if (patch.local_agent) {
-              const la = patch.local_agent;
+            if (patch.localAgent) {
+              const la = patch.localAgent;
               if (la.force !== undefined) {
                 await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, la.force, tx);
               }
               if (la.sandbox !== undefined) {
                 await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, la.sandbox, tx);
               }
-              if (la.timeout_ms !== undefined) {
-                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, la.timeout_ms, tx);
+              if (la.timeoutMs !== undefined) {
+                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, la.timeoutMs, tx);
               }
             }
             if (patch.secrets !== undefined) {
@@ -91,8 +91,8 @@ export class SettingsService {
                           tx,
                         );
             }
-            if (patch.http_allowlist !== undefined) {
-              const clean = patch.http_allowlist
+            if (patch.httpAllowlist !== undefined) {
+              const clean = patch.httpAllowlist
                 .map((h) => h.trim().toLowerCase())
                 .filter(Boolean);
               await this.database.setSetting(SETTINGS_KEYS.HTTP_ALLOWLIST, clean, tx);

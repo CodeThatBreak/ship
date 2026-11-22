@@ -68,18 +68,18 @@ export async function loadTemplateGallery(): Promise<TemplateRow[]> {
     name: t.name,
     description: t.description,
     version: t.version,
-    is_builtin: t.isBuiltin ? 1 : 0,
+    isBuiltin: t.isBuiltin ? 1 : 0,
     trigger: t.trigger,
     nodeCount: t.nodeCount,
-    created_at: t.createdAt,
-    updated_at: t.updatedAt,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
   }));
 }
 
 /**
  * The Template Nodes catalog page's first-paint rows — the same read the
  * thin `/api/node-templates` GET wraps, including its
- * `is_builtin`/`is_local` serialization.
+ * `isBuiltin`/`isLocal` serialization.
  */
 export async function loadNodeCatalog(): Promise<NodeRow[]> {
   return templateStore.listNodeCatalogRows();

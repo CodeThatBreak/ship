@@ -12,13 +12,13 @@ export interface EditorNode {
   label: string;
   overrideLabel?: string | null;
   trigger: { type: string; minutes?: number; wait_for?: string };
-  join_mode: string;
+  joinMode: string;
   config: Record<string, unknown>;
-  input_map: Record<string, unknown>;
+  inputMap: Record<string, unknown>;
   kind: string | null;
   icon: string | null;
-  catalog_name: string | null;
-  is_builtin: boolean;
+  catalogName: string | null;
+  isBuiltin: boolean;
   description?: string | null;
   /** the backing node_templates row is private to this template (the canvas
    *  creator's rows) — not yet promoted to the shared Library */
@@ -50,7 +50,7 @@ export interface EditorEdge {
  * A draft declarative node template (Phase 2): the palette's kind tiles place
  * in-memory instances backed by `nodeTemplateId: "draft:<n>"` — the def rides
  * in the draft's `pendingDefs` and becomes a persisted `node_templates` row
- * only when the template is Saved (PATCH `new_node_templates`).
+ * only when the template is Saved (PATCH `newNodeTemplates`).
  */
 export interface DraftNodeDef {
   /** `draft:<n>` — matches the referencing instances' nodeTemplateId */
@@ -126,8 +126,8 @@ export interface TaskProviderInfo {
 }
 
 /** Display label used everywhere: override wins, then catalog name, then key. */
-export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog_name">): string {
-  return n.overrideLabel || n.catalog_name || n.key;
+export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalogName">): string {
+  return n.overrideLabel || n.catalogName || n.key;
 }
 
 /**
@@ -138,10 +138,10 @@ export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog
  */
 export function isPlanNode(n: EditorNode): boolean {
   return (
-    Boolean(n.is_builtin) &&
+    Boolean(n.isBuiltin) &&
     (n.nodeTemplateId === BUILTIN_TEMPLATE_ID.PLAN ||
       n.catalogKey === CATALOG_KEY.PLAN ||
-      (n.catalog_name ?? "").toLowerCase() === CATALOG_KEY.PLAN)
+      (n.catalogName ?? "").toLowerCase() === CATALOG_KEY.PLAN)
   );
 }
 

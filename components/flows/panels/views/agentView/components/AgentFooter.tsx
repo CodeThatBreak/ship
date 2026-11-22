@@ -23,14 +23,14 @@ export default function AgentFooter({
       <span className="text-xs text-muted-foreground">{model.statusHint}</span>
       <div className="flex-1" />
       {model.awaitingApproval && (
-        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.nodeKey })}>
           <CheckCheck size={14} /> Approve
         </Button>
       )}
       {model.openPrVisible && (
         <Button
           variant="outline"
-          onClick={() => action(FLOW_ACTION.CREATE_CHANGE_REQUEST, { nodeKey: node.node_key })}
+          onClick={() => action(FLOW_ACTION.CREATE_CHANGE_REQUEST, { nodeKey: node.nodeKey })}
         >
           <GitMerge size={13} />{' '}
           {model.changeRequestExists

@@ -21,7 +21,7 @@ export type HookInfo = { id: string; secret: string; filter: string | null };
 type TemplateDetailPayload = {
   hook?: HookInfo | null;
   nodes?: {
-    node_template_id: string;
+    nodeTemplateId: string;
     config: Record<string, unknown> | null;
   }[];
 };
@@ -47,7 +47,7 @@ export async function fetchWebhookContext(
   templateId: string,
 ): Promise<{ fields: ContractField[]; hook: HookInfo | null }> {
   const detail = await fetchJson<TemplateDetailPayload>(`/api/templates/${templateId}`);
-  const start = detail.nodes?.find((n) => n.node_template_id === START_NODE_TEMPLATE_ID);
+  const start = detail.nodes?.find((n) => n.nodeTemplateId === START_NODE_TEMPLATE_ID);
   const fields = start ? await fetchContractFields(start.config ?? null) : [];
   return { fields, hook: detail.hook ?? null };
 }

@@ -24,7 +24,7 @@ import { FanoutStepCard, fanoutStepState } from "./FanoutStepCard";
  */
 export default function FanoutStepList({ flow, node }: { flow: FlowData; node?: Node }) {
   const { action, actionPending } = useNodePanel();
-  const steps = (flow.planSteps ?? []).filter((s: PlanStepRow) => s.sub_flow != null);
+  const steps = (flow.planSteps ?? []).filter((s: PlanStepRow) => s.subFlow != null);
 
   const onApprove = useCallback(
     (stepId: string) => action(FLOW_ACTION.APPROVE_FANOUT_STEP, { stepId }),
@@ -45,17 +45,17 @@ export default function FanoutStepList({ flow, node }: { flow: FlowData; node?: 
   // duration — the node-level line matching the graph subtitle's rollup
   const resolved = steps.filter((s) => s.status === FLOW_STATUS.DONE).length;
   const failed = steps.filter(
-    (s) => s.sub_flow?.nodeStatus === FLOW_STATUS.FAILED && s.status !== FLOW_STATUS.DONE,
+    (s) => s.subFlow?.nodeStatus === FLOW_STATUS.FAILED && s.status !== FLOW_STATUS.DONE,
   ).length;
   const inflight = steps.filter(
     (s) =>
       s.status !== FLOW_STATUS.DONE &&
-      (s.sub_flow?.nodeStatus === FLOW_STATUS.RUNNING ||
-        s.sub_flow?.nodeStatus === FLOW_STATUS.AWAITING_APPROVAL),
+      (s.subFlow?.nodeStatus === FLOW_STATUS.RUNNING ||
+        s.subFlow?.nodeStatus === FLOW_STATUS.AWAITING_APPROVAL),
   ).length;
-  const costCents = steps.reduce((sum, s) => sum + (s.sub_flow?.costCents ?? 0), 0);
-  const durationMs = steps.reduce((sum, s) => sum + (s.sub_flow?.durationMs ?? 0), 0);
-  const runs = steps.reduce((sum, s) => sum + (s.sub_flow?.runCount ?? 0), 0);
+  const costCents = steps.reduce((sum, s) => sum + (s.subFlow?.costCents ?? 0), 0);
+  const durationMs = steps.reduce((sum, s) => sum + (s.subFlow?.durationMs ?? 0), 0);
+  const runs = steps.reduce((sum, s) => sum + (s.subFlow?.runCount ?? 0), 0);
 
   return (
     <div className="mb-4">
@@ -81,7 +81,7 @@ export default function FanoutStepList({ flow, node }: { flow: FlowData; node?: 
       )}
       <div className="grid gap-2">
         {steps.map((s) => {
-          const ms = s.sub_flow?.mergeStatus ?? null;
+          const ms = s.subFlow?.mergeStatus ?? null;
           const approveBlocked =
             ms === "conflict" || ms === "rejected" || ms === "running" || ms === "failed";
           return (

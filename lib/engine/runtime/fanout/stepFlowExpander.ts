@@ -378,7 +378,7 @@ export class StepFlowExpander {
           nodeTemplateId: spec.nodeTemplateId,
           trigger: { type: parentTrigger === "approval" ? "approval" : "auto" },
           config: stripFanoutKeys(effective),
-          input_map: spec.inputMap,
+          inputMap: spec.inputMap,
         },
       ],
       edges: [],

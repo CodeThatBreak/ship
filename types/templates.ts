@@ -11,11 +11,11 @@ export type TemplateRow = {
   name: string;
   description: string | null;
   version: number;
-  is_builtin: number;
+  isBuiltin: number;
   /** flow trigger: { type: manual | webhook | schedule, ... } */
   trigger: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   nodeCount: number;
 };
 
@@ -27,11 +27,11 @@ export type NodeRow = {
   version: number;
   description: string | null;
   icon: string | null;
-  is_builtin: boolean;
+  isBuiltin: boolean;
   config: Record<string, unknown>;
-  template_id: string | null;
-  is_local: boolean;
-  updated_at: string;
+  templateId: string | null;
+  isLocal: boolean;
+  updatedAt: string;
 };
 
 /** The create/edit node form state (identity + the kind's whole definition). */

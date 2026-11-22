@@ -38,10 +38,10 @@ export const templateColumns: ColumnDef<TemplateRow>[] = [
   },
   {
     id: "type",
-    accessorFn: (t) => (Boolean(t.is_builtin) ? "built-in" : "custom"),
+    accessorFn: (t) => (Boolean(t.isBuiltin) ? "built-in" : "custom"),
     header: "Type",
     cell: ({ row }) =>
-      Boolean(row.original.is_builtin) ? (
+      Boolean(row.original.isBuiltin) ? (
         <Badge className="bg-info/10 text-info">built-in</Badge>
       ) : (
         <Badge variant="outline">custom</Badge>
@@ -67,19 +67,19 @@ export const templateColumns: ColumnDef<TemplateRow>[] = [
     ),
   },
   {
-    accessorKey: "updated_at",
+    accessorKey: "updatedAt",
     header: "Updated",
     cell: ({ row }) => (
       <span className="text-[12px] text-muted-foreground">
-        {fmtDate(row.original.updated_at) || "—"}
+        {fmtDate(row.original.updatedAt) || "—"}
       </span>
     ),
     // default view: built-ins pinned first, newest within each group
     sortingFn: (a, b) => {
       const rank = (isBuiltin: number) => (Boolean(isBuiltin) ? 0 : 1);
-      if (rank(a.original.is_builtin) !== rank(b.original.is_builtin))
-        return rank(a.original.is_builtin) - rank(b.original.is_builtin);
-      return b.original.updated_at.localeCompare(a.original.updated_at);
+      if (rank(a.original.isBuiltin) !== rank(b.original.isBuiltin))
+        return rank(a.original.isBuiltin) - rank(b.original.isBuiltin);
+      return b.original.updatedAt.localeCompare(a.original.updatedAt);
     },
   },
 ];

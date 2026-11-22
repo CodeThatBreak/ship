@@ -11,6 +11,6 @@ describe("patchSettings (CR-038)", () => {
       "fetch",
       vi.fn(async () => new Response(JSON.stringify({ error: "bad patch" }), { status: 400 })),
     );
-    await expect(patchSettings({ default_model: "gpt" })).rejects.toThrow("bad patch");
+    await expect(patchSettings({ defaultModel: "gpt" })).rejects.toThrow("bad patch");
   });
 });

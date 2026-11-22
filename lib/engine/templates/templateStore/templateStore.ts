@@ -196,7 +196,7 @@ export class TemplateStore {
   /**
    * The template editor's full payload (the GET /api/templates/[id] body):
    * template meta, the always-provisioned flow hook and the graph as
-   * snake_case row slices. Null when the template or its graph is missing.
+   * camelCase row slices. Null when the template or its graph is missing.
    * Shared by the route and the server page's SSR boot (single mapping).
    */
   async editorPayload(id: string): Promise<TemplateEditorDetail | null> {
@@ -211,20 +211,20 @@ export class TemplateStore {
       const nt = await this.nodeTemplate(n.nodeTemplateId);
       nodes.push({
         key: n.key,
-        node_template_id: n.nodeTemplateId,
+        nodeTemplateId: n.nodeTemplateId,
         label: n.label,
         trigger: { ...n.trigger },
-        join_mode: n.joinMode,
+        joinMode: n.joinMode,
         config: n.config,
-        input_map: n.inputMap,
+        inputMap: n.inputMap,
         kind: nt?.kind ?? null,
         icon: nt?.icon ?? null,
-        catalog_name: nt?.name ?? null,
+        catalogName: nt?.name ?? null,
         /** node_templates row key ("plan"/"start"/...): the fan-out UI gates
          *  on builtin plan nodes the same way the save-time lint does */
-        catalog_key: nt?.key ?? null,
-        is_builtin: Boolean(nt?.isBuiltin),
-        is_local: Boolean(nt?.templateId),
+        catalogKey: nt?.key ?? null,
+        isBuiltin: Boolean(nt?.isBuiltin),
+        isLocal: Boolean(nt?.templateId),
         x: n.x ?? null,
         y: n.y ?? null,
       });
@@ -235,7 +235,7 @@ export class TemplateStore {
         name: t.name,
         description: t.description,
         version: t.version,
-        is_builtin: Boolean(t.isBuiltin),
+        isBuiltin: Boolean(t.isBuiltin),
         trigger: g.flowTrigger,
       },
       hook: hook ? { id: hook.id, secret: hook.secret, filter: hook.filter } : null,
@@ -276,11 +276,11 @@ export class TemplateStore {
       version: nt.version,
       description: nt.description,
       icon: nt.icon,
-      is_builtin: Boolean(nt.isBuiltin),
+      isBuiltin: Boolean(nt.isBuiltin),
       config: nt.config ?? {},
-      template_id: nt.templateId,
-      is_local: Boolean(nt.templateId),
-      updated_at: nt.updatedAt,
+      templateId: nt.templateId,
+      isLocal: Boolean(nt.templateId),
+      updatedAt: nt.updatedAt,
     };
   }
 
@@ -334,7 +334,7 @@ export class TemplateStore {
       key?: string;
       nodeTemplateId?: string;
       config?: unknown;
-      input_map?: unknown;
+      inputMap?: unknown;
       trigger?: unknown;
     }[];
     edges?: {
@@ -344,12 +344,12 @@ export class TemplateStore {
       label?: string | null;
       condition?: string | null;
     }[];
-    new_node_templates?: { draft_id?: string; kind?: string; config?: unknown }[];
+    newNodeTemplates?: { draftId?: string; kind?: string; config?: unknown }[];
   }): Promise<LintProblem[]> {
     const lintNodes = (body.nodes ?? []).map((n) => ({
       key: (typeof n.key === "string" ? n.key : "").trim(),
       nodeTemplateId: typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "",
-      inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+      inputMap: (n.inputMap ?? {}) as Record<string, unknown>,
       config: (n.config ?? {}) as Record<string, unknown>,
       trigger: n.trigger,
     }));
@@ -366,9 +366,9 @@ export class TemplateStore {
       .map((n) => n.nodeTemplateId)
       .filter((id) => id && !id.startsWith("draft:"));
     const catalog = await catalogForNodeTemplateIds(realIds);
-    for (const d of body.new_node_templates ?? []) {
-      if (typeof d?.draft_id === "string" && d.draft_id.startsWith("draft:")) {
-        catalog[d.draft_id] = {
+    for (const d of body.newNodeTemplates ?? []) {
+      if (typeof d?.draftId === "string" && d.draftId.startsWith("draft:")) {
+        catalog[d.draftId] = {
           kind: d.kind ?? "agent",
           config: d.config ?? {},
           key: "",
@@ -429,7 +429,7 @@ export class TemplateStore {
    * Update a template. Node/edge arrays, when present, replace the existing
    * ones wholesale (the editor sends its full draft); otherwise only the
    * meta fields are touched. Running flows keep the graph snapshot taken at
-   * creation; only node config/join_mode on their node rows were frozen then
+   * creation; only node config/joinMode on their node rows were frozen then
    * (structural template edits are blocked while flows are active).
    */
   async update(templateId: string, patch: Partial<TemplateInput>, tx?: Prisma.TransactionClient): Promise<void> {
@@ -467,24 +467,24 @@ export class TemplateStore {
     patch: Partial<TemplateInput> & {
       nodes?: TemplateNodeInput[];
       edges?: TemplateEdgeInput[];
-      new_node_templates?: DraftNodeTemplateInput[];
+      newNodeTemplates?: DraftNodeTemplateInput[];
     },
   ): Promise<void> {
-    const drafts = Array.isArray(patch.new_node_templates) ? patch.new_node_templates : [];
+    const drafts = Array.isArray(patch.newNodeTemplates) ? patch.newNodeTemplates : [];
     if (
       !drafts.length &&
       patch.nodes?.some((n) => typeof n.nodeTemplateId === "string" && n.nodeTemplateId.startsWith("draft:"))
     ) {
       throw new ValidationError(
-        "a node references an unsaved node template — send it in new_node_templates",
+        "a node references an unsaved node template — send it in newNodeTemplates",
       );
     }
     await db.transaction(async (exec) => {
       const remapped = { ...patch };
-      delete remapped.new_node_templates;
+      delete remapped.newNodeTemplates;
       if (drafts.length) {
         if (!remapped.nodes) {
-          throw new ValidationError("new_node_templates requires the nodes array (a full graph save)");
+          throw new ValidationError("newNodeTemplates requires the nodes array (a full graph save)");
         }
         remapped.nodes = await this.remapDraftNodeTemplates(templateId, remapped.nodes, drafts, exec);
       }
@@ -500,9 +500,9 @@ export class TemplateStore {
   ): Promise<TemplateNodeInput[]> {
     const byDraftId = new Map<string, string>();
     for (const d of drafts) {
-      const draftId = typeof d?.draft_id === "string" ? d.draft_id : "";
+      const draftId = typeof d?.draftId === "string" ? d.draftId : "";
       if (!draftId.startsWith("draft:")) {
-        throw new ValidationError("new_node_templates entry is missing its draft_id");
+        throw new ValidationError("newNodeTemplates entry is missing its draftId");
       }
       if (byDraftId.has(draftId)) continue;
       const { id: rowId } = await this.createOrReuseNodeTemplate({
@@ -520,7 +520,7 @@ export class TemplateStore {
       const rowId = byDraftId.get(ntId);
       if (!rowId) {
         throw new ValidationError(
-          `node "${n.key}" references unsaved node template "${ntId}" — it wasn't included in new_node_templates`,
+          `node "${n.key}" references unsaved node template "${ntId}" — it wasn't included in newNodeTemplates`,
         );
       }
       return { ...n, nodeTemplateId: rowId };
@@ -626,7 +626,7 @@ export class TemplateStore {
 
   /**
    * The palette's node-template slices, split by locality: `library` = global
-   * declarative rows (the shared Library, `template_id IS NULL`),
+   * declarative rows (the shared Library, `templateId IS NULL`),
    * `templateLocal` = rows owned by the given template (the canvas creator's
    * rows) — an absent templateId means no local slice. Built-ins are excluded
    * from both (the palette renders them from the full catalog listing).
@@ -952,7 +952,7 @@ export class TemplateStore {
     }));
     // build-time static checks (§5): {{refs}} resolve against upstream
     // contracts AND the template's task context (trigger.taskType → provider
-    // fields), JSONata compiles in input_map / decision expressions /
+    // fields), JSONata compiles in inputMap / decision expressions /
     // response_map / edge conditions
     const trigger = TemplateStore.flowTrigger(input.trigger);
     if (opts.skipLint !== true) {
@@ -960,7 +960,7 @@ export class TemplateStore {
         input.nodes.map((n) => ({
           key: n.key.trim(),
           nodeTemplateId: n.nodeTemplateId,
-          inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+          inputMap: (n.inputMap ?? {}) as Record<string, unknown>,
           config: (n.config ?? {}) as Record<string, unknown>,
           trigger: n.trigger,
         })),
@@ -999,9 +999,9 @@ export class TemplateStore {
             nodeTemplateId: n.nodeTemplateId,
             label: n.label ?? null,
             trigger: jsonInput(TemplateStore.nodeTrigger(n.trigger)),
-            joinMode: n.join_mode === "any" ? "any" : "all",
+            joinMode: n.joinMode === "any" ? "any" : "all",
             config: jsonInput(n.config && Object.keys(n.config).length ? n.config : {}),
-            inputMap: jsonInput(n.input_map && Object.keys(n.input_map).length ? n.input_map : {}),
+            inputMap: jsonInput(n.inputMap && Object.keys(n.inputMap).length ? n.inputMap : {}),
             x: n.x ?? null, y: n.y ?? null,
             createdAt: ts, updatedAt: ts,
           })),

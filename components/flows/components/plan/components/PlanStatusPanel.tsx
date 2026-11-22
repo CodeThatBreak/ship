@@ -22,9 +22,9 @@ export function PlanStatusPanel({
   plans: Artifact[];
   onAction: (action: Action) => void;
 }) {
-  const onRetry = () => onAction({ type: ACTION_TYPES.RETRY_AGENT, payload: { nodeKey: node.node_key } });
+  const onRetry = () => onAction({ type: ACTION_TYPES.RETRY_AGENT, payload: { nodeKey: node.nodeKey } });
 
-  const onStop = () => onAction({ type: ACTION_TYPES.CANCEL_AGENT, payload: { nodeKey: node.node_key } });
+  const onStop = () => onAction({ type: ACTION_TYPES.CANCEL_AGENT, payload: { nodeKey: node.nodeKey } });
 
   if (node.status === FLOW_STATUS.FAILED) return <FailureAlert onRetry={onRetry} />;
   if (node.status === FLOW_STATUS.RUNNING) {

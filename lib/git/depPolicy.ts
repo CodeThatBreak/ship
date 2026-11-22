@@ -11,7 +11,7 @@ import path from "path";
  * rule to the resolver's table, never editing engine/node logic.
  *
  * Resolution order (first hit wins):
- *  1. per-repo overrides — `skip_install` → none, `install_command` → command
+ *  1. per-repo overrides — `skipInstall` → none, `installCommand` → command
  *  2. recognized ecosystem rules (manifest+lockfile pairs)
  *  3. nothing recognizable → none
  */
@@ -35,16 +35,16 @@ export interface DepPolicy {
 
 /** Per-repo overrides (columns on the repos table; all optional). */
 export interface RepoDepOverrides {
-  install_command?: string | null;
-  skip_install?: boolean | number | null;
-  setup_command?: string | null;
-  sync_paths?: string | null;
-  shared_dirs?: string | null;
+  installCommand?: string | null;
+  skipInstall?: boolean | number | null;
+  setupCommand?: string | null;
+  syncPaths?: string | null;
+  sharedDirs?: string | null;
 }
 
 /**
  * Default untracked-config sync: config surfaces the worktree needs but git
- * doesn't carry. Overridable per repo via `sync_paths`.
+ * doesn't carry. Overridable per repo via `syncPaths`.
  */
 export const DEFAULT_SYNC_GLOBS = [".env*", "*.rc"];
 
@@ -168,10 +168,10 @@ export class DepPolicyResolver {
   }): DepPolicy {
     const overrides = input.overrides ?? {};
     // 1. per-repo overrides win over everything — odd repos are configuration
-    if (overrides.skip_install) {
+    if (overrides.skipInstall) {
       return { strategy: "none", source: "override:skip_install" };
     }
-    const installCommand = overrides.install_command?.trim();
+    const installCommand = overrides.installCommand?.trim();
     if (installCommand) {
       return {
         strategy: "command",
@@ -190,7 +190,7 @@ export class DepPolicyResolver {
 
   // ── path-list / glob helpers (shared with the setup executor) ────────────
 
-  /** Split a free-form path-list field (`sync_paths` / `shared_dirs`). */
+  /** Split a free-form path-list field (`syncPaths` / `sharedDirs`). */
   parsePathList(raw: string | null | undefined): string[] {
     if (!raw) return [];
     return raw.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
@@ -198,7 +198,7 @@ export class DepPolicyResolver {
 
   /** Effective config-sync globs: the per-repo override, else the defaults. */
   resolveSyncGlobs(overrides?: RepoDepOverrides | null): string[] {
-    const parsed = this.parsePathList(overrides?.sync_paths);
+    const parsed = this.parsePathList(overrides?.syncPaths);
     return parsed.length ? parsed : [...DEFAULT_SYNC_GLOBS];
   }
 

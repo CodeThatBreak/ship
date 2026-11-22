@@ -2,7 +2,7 @@
 /**
  * The editing row: field name + the grouped source picker (raw JSONata as
  * the separated advanced item). The row keeps its edits local — nothing
- * lands in input_map until the Add button commits them (Cancel closes
+ * lands in inputMap until the Add button commits them (Cancel closes
  * without writing); the popover hugs the field's right edge so it fits the
  * narrow side panel.
  */

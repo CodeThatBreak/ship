@@ -13,7 +13,7 @@ import { FLOW_STATUS } from '@/constants/flow';
 // run status pinned to the right
 export default function FlowHeader({ flow }: { flow: FlowData }) {
   const { task } = flow;
-  const mrBranches = (flow.branches ?? []).filter((b: BranchRow) => b.mr_url);
+  const mrBranches = (flow.branches ?? []).filter((b: BranchRow) => b.mrUrl);
   const cost = flow.cost && flow.cost.runCount > 0 ? flow.cost : undefined;
   // Task 21 (use case 8d): the `usage` artifacts rolled up across runs —
   // the artifact-derived spend with the per-model breakdown the run-row
@@ -24,7 +24,7 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
     : 0;
   // plan fan-out (Phase 4): the flow total includes the step children's runs
   // — the tooltip breaks that share down per step (cost · duration · runs)
-  const stepCosts = (flow.planSteps ?? []).filter(s => s.sub_flow && (s.sub_flow.runCount ?? 0) > 0);
+  const stepCosts = (flow.planSteps ?? []).filter(s => s.subFlow && (s.subFlow.runCount ?? 0) > 0);
   const costTitle =
     cost &&
     `${cost.runCount} run${cost.runCount > 1 ? 's' : ''}${
@@ -61,7 +61,7 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
         </a>
       )}
       <Badge variant="secondary" className="shrink-0">
-        {flow.execution_mode === 'local' ? (
+        {flow.executionMode === 'local' ? (
           <>
             <FolderGit2 data-icon="inline-start" /> local
           </>
@@ -85,7 +85,7 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
             {stepCosts.length > 0 && (
               <div className="mt-1 grid text-[11px] font-mono max-w-[290px]">
                 {stepCosts.map(s => {
-                  const sf = s.sub_flow;
+                  const sf = s.subFlow;
                   if (!sf) return null;
                   const cents = sf.costCents ?? 0;
                   return (
@@ -136,17 +136,17 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
       {mrBranches.length > 0 ? (
         <span className="flex shrink-0 gap-1">
           {mrBranches.map((b: BranchRow) => (
-            <a key={b.id} href={b.mr_url} target="_blank" rel="noreferrer">
+            <a key={b.id} href={b.mrUrl} target="_blank" rel="noreferrer">
               <Badge className="bg-violet-500/10 text-violet-400 hover:bg-violet-500/20">
-                <GitMerge data-icon="inline-start" /> {b.name} !{b.mr_iid}
+                <GitMerge data-icon="inline-start" /> {b.name} !{b.mrIid}
               </Badge>
             </a>
           ))}
         </span>
-      ) : flow.mr_url ? (
-        <a href={flow.mr_url} target="_blank" rel="noreferrer" className="shrink-0">
+      ) : flow.mrUrl ? (
+        <a href={flow.mrUrl} target="_blank" rel="noreferrer" className="shrink-0">
           <Badge className="bg-violet-500/10 text-violet-400 hover:bg-violet-500/20">
-            <GitMerge data-icon="inline-start" /> MR !{flow.mr_iid}
+            <GitMerge data-icon="inline-start" /> MR !{flow.mrIid}
           </Badge>
         </a>
       ) : (

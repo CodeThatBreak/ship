@@ -4,7 +4,7 @@
  * naming the field and the producing node — the stage refuses to proceed
  * (engine overhaul step 00 placeholder → step 04 implementation).
  *
- * The scenario is the docs-generation shape: a script node's `input_map`
+ * The scenario is the docs-generation shape: a script node's `inputMap`
  * promises `doc` from the upstream summarize agent's `markdown` output. The
  * upstream never ran (no output) — today the mapping silently vanished and
  * the script ran on an empty input; now the stage fails typed instead.
@@ -27,14 +27,14 @@ const harness = new FlowHarness({ db, flowEngine, templateStore });
 beforeAll(resetTestDatabase);
 
 describe("consumes validation at stage start", () => {
-  test("missing input_map target ⇒ failed with a typed event naming the field and the producer", async () => {
+  test("missing inputMap target ⇒ failed with a typed event naming the field and the producer", async () => {
     const flowId = await harness.seedInlineFlow(
       [
         { key: "summarize", def: "nt_st_summarize" },
         {
           key: "write_doc",
           def: "nt_st_write_doc",
-          input_map: { doc: "nodes.summarize.output.markdown" },
+          inputMap: { doc: "nodes.summarize.output.markdown" },
         },
       ],
       [{ from: "summarize", to: "write_doc" }],
@@ -52,14 +52,14 @@ describe("consumes validation at stage start", () => {
     expect(await harness.nodeStatus(flowId, "summarize")).toBe("pending");
   });
 
-  test("a satisfied input_map target does not refuse the stage (the failure is the node's own)", async () => {
+  test("a satisfied inputMap target does not refuse the stage (the failure is the node's own)", async () => {
     const flowId = await harness.seedInlineFlow(
       [
         { key: "summarize", def: "nt_st_summarize" },
         {
           key: "write_doc",
           def: "nt_st_write_doc",
-          input_map: { doc: "nodes.summarize.output.markdown" },
+          inputMap: { doc: "nodes.summarize.output.markdown" },
         },
       ],
       [{ from: "summarize", to: "write_doc" }],

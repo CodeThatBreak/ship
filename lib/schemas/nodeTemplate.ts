@@ -16,7 +16,7 @@ export const nodeTemplateCreateBodySchema = z.object({
 export type NodeTemplateCreateBody = z.infer<typeof nodeTemplateCreateBodySchema>;
 
 export const nodeTemplatePatchBodySchema = z.object({
-  add_to_library: z.boolean().optional(),
+  addToLibrary: z.boolean().optional(),
   name: z.string().optional(),
   description: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),

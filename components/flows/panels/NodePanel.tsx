@@ -43,7 +43,7 @@ export default function NodePanel({
   // panels and by the plan composer. Local flows (mode picked at start)
   // prefill the local runtime's model; cloud stays on the account default (null).
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(
-    flow.execution_mode === EXECUTION_MODE_LOCAL ? { id: LOCAL_MODE_MODEL } : null
+    flow.executionMode === EXECUTION_MODE_LOCAL ? { id: LOCAL_MODE_MODEL } : null
   );
   const model = composeModelChoice(modelChoice);
 
@@ -72,7 +72,7 @@ export default function NodePanel({
       <div className="flex flex-1 min-h-0 min-w-0">
         {/* the node's panel column */}
         <div className="flex-[1.6] min-w-0 min-h-0 flex flex-col">
-          <Panel key={node.node_key} />
+          <Panel key={node.nodeKey} />
         </div>
         {/* the node's chat rail — agent-backed nodes only, the plan node
             through the plan feature's composer config. The top/left/bottom
@@ -82,7 +82,7 @@ export default function NodePanel({
             keep the copy where it was. */}
         {Chat && (
           <div className="bg-card w-1/2  py-3.5 px-3.5 pr-0 min-h-0">
-            <Chat key={node.node_key} />
+            <Chat key={node.nodeKey} />
           </div>
         )}
       </div>

@@ -27,7 +27,7 @@ export function useNodeContractView(node: EditorNode) {
     }
     return {
       key: node.nodeTemplateId,
-      label: node.catalog_name ?? node.key,
+      label: node.catalogName ?? node.key,
       kind: node.kind ?? "",
       input: null,
       output: null,

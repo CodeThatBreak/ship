@@ -32,7 +32,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
         nodes?: TemplateNodeInput[];
         edges?: TemplateEdgeInput[];
         positions?: Record<string, { x: number; y: number }>;
-        new_node_templates?: DraftNodeTemplateInput[];
+        newNodeTemplates?: DraftNodeTemplateInput[];
       });
   if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
   try {

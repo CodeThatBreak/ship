@@ -24,12 +24,12 @@ export type Harness = { key: string; label: string; modes: HarnessMode[] };
 /** Full settings document — same JSON shape as GET /api/settings. */
 export type Settings = {
   harnesses?: Harness[];
-  default_harness: string;
-  default_execution_mode: string;
-  default_model: string;
-  local_agent: { force: boolean; sandbox: boolean; timeout_ms: number };
+  defaultHarness: string;
+  defaultExecutionMode: string;
+  defaultModel: string;
+  localAgent: { force: boolean; sandbox: boolean; timeoutMs: number };
   secrets?: string[];
-  http_allowlist?: string[];
+  httpAllowlist?: string[];
   status: {
     cursorApiKeySet: boolean;
     localAgentConfigured: boolean;

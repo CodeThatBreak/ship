@@ -20,7 +20,7 @@ export function LocalAgentOptions({
   savingField: LocalAgentField | null;
   onToggle: (field: LocalAgentField) => void;
 }) {
-  const { force, sandbox, timeout_ms: timeoutMs } = options;
+  const { force, sandbox, timeoutMs: timeoutMs } = options;
   const pending = savingField !== null;
 
   // stable per §1.3 — callbacks keep their identity across renders
@@ -70,7 +70,7 @@ export function LocalAgentOptions({
 
 /** Skeleton mirroring <LocalAgentOptions /> — title/subtitle, toggle chips row
  *  + timeout text — so the settings query resolves without layout shift
- *  (AGENTS.md §1.8). Shown while GET /api/settings has no local_agent yet. */
+ *  (AGENTS.md §1.8). Shown while GET /api/settings has no localAgent yet. */
 export function LocalAgentOptionsSkeleton() {
   return (
     <div aria-hidden className="grid gap-2.5">

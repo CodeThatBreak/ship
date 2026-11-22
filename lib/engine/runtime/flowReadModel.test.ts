@@ -75,10 +75,10 @@ describe("FlowReadModel.get", () => {
 
     const snapshot = await readModel.get(parentId);
     expect(snapshot).not.toBeNull();
-    expect(snapshot?.planSteps?.[0] && "sub_flow" in snapshot.planSteps[0] && snapshot.planSteps[0].sub_flow?.id).toBe(childId);
-    expect(snapshot?.planSteps?.[0] && "sub_flow" in snapshot.planSteps[0] && snapshot.planSteps[0].sub_flow?.nodeStatus).toBeTruthy();
+    expect(snapshot?.planSteps?.[0] && "subFlow" in snapshot.planSteps[0] && snapshot.planSteps[0].subFlow?.id).toBe(childId);
+    expect(snapshot?.planSteps?.[0] && "subFlow" in snapshot.planSteps[0] && snapshot.planSteps[0].subFlow?.nodeStatus).toBeTruthy();
 
-    const planNode = snapshot?.nodes.find((n) => n.node_key === "plan");
+    const planNode = snapshot?.nodes.find((n) => n.nodeKey === "plan");
     expect(planNode?.artifacts[0]?.id).toBe("art_1");
     expect(planNode?.artifacts[0]).not.toHaveProperty("content");
 

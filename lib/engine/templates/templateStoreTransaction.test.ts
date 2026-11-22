@@ -41,9 +41,9 @@ describe("TemplateStore transactions", () => {
             },
           ],
           edges: [],
-          new_node_templates: [
+          newNodeTemplates: [
             {
-              draft_id: "draft:1",
+              draftId: "draft:1",
               name: "Inline agent",
               kind: "agent",
               config: { prompt: "hello" },

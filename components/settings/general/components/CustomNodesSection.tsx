@@ -87,7 +87,7 @@ export function CustomNodesSection({ settings, onError }: {
   );
 
   /** allowlist textarea re-keys when the saved list changes (key-reset) */
-  const allowlistKey = settings.http_allowlist?.join("\n") ?? "";
+  const allowlistKey = settings.httpAllowlist?.join("\n") ?? "";
 
   return (
     <section className="mb-8">
@@ -126,7 +126,7 @@ export function CustomNodesSection({ settings, onError }: {
         <div className="border-t border-border pt-4">
           <HttpAllowlist
             key={allowlistKey}
-            initial={settings.http_allowlist ?? []}
+            initial={settings.httpAllowlist ?? []}
             onError={onError}
           />
         </div>

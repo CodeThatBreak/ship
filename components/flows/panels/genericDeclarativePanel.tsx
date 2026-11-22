@@ -72,19 +72,19 @@ export const GenericDeclarativePanel = () => {
         </Button>
       )}
       {awaitingApproval && (
-        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.nodeKey })}>
           <CheckCheck size={14} /> Approve
         </Button>
       )}
       {pending && !running && (
-        <Button onClick={() => action(FLOW_ACTION.RUN_NODE, { nodeKey: node.node_key, model: model || undefined })}>
+        <Button onClick={() => action(FLOW_ACTION.RUN_NODE, { nodeKey: node.nodeKey, model: model || undefined })}>
           <Play size={13} /> Run
         </Button>
       )}
       {openPrVisible && (
         <Button
           variant="outline"
-          onClick={() => action(FLOW_ACTION.CREATE_CHANGE_REQUEST, { nodeKey: node.node_key })}
+          onClick={() => action(FLOW_ACTION.CREATE_CHANGE_REQUEST, { nodeKey: node.nodeKey })}
         >
           <GitMerge size={13} /> Open PR
         </Button>
@@ -132,21 +132,21 @@ export const GenericDeclarativePanel = () => {
                 name={b.name}
                 title={b.title}
                 status={b.status}
-                mrUrl={b.mr_url}
-                mrIid={b.mr_iid}
+                mrUrl={b.mrUrl}
+                mrIid={b.mrIid}
               />
             ))}
           </div>
         </div>
       )}
-      {branches.length === 0 && flow.mr_url && (
+      {branches.length === 0 && flow.mrUrl && (
         <p className="text-[13px] mb-3.5">
-          <a href={flow.mr_url} target="_blank" rel="noopener noreferrer" className="text-info hover:underline">
-            MR !{flow.mr_iid} ↗
+          <a href={flow.mrUrl} target="_blank" rel="noopener noreferrer" className="text-info hover:underline">
+            MR !{flow.mrIid} ↗
           </a>
-          {flow.mr_branch && (
+          {flow.mrBranch && (
             <>
-              {" "}on branch <code className="font-mono">{flow.mr_branch}</code>
+              {" "}on branch <code className="font-mono">{flow.mrBranch}</code>
             </>
           )}
         </p>

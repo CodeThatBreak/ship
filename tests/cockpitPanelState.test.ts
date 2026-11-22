@@ -14,7 +14,7 @@ import type { Node } from "@/types/flow";
 
 const node = (key: string, status: string): Node => ({
   id: `id_${key}`,
-  node_key: key,
+  nodeKey: key,
   type: key,
   status,
   artifacts: [],

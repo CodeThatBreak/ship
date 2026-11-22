@@ -62,7 +62,7 @@ export function TemplateNodesCatalog() {
   // row actions — built-ins are code-defined and carry none; the DataTable
   // renders "Configure" upfront and pushes Delete into the ⋯ overflow menu
   const getActions = (n: NodeRow): DataTableAction<NodeRow>[] =>
-    n.is_builtin
+    n.isBuiltin
       ? []
       : [
           {
@@ -123,7 +123,7 @@ export function TemplateNodesCatalog() {
           searchable
           searchPlaceholder="Search nodes…"
           pageSize={25}
-          initialSorting={[{ id: "updated_at", desc: false }]}
+          initialSorting={[{ id: "updatedAt", desc: false }]}
           emptyMessage="No nodes yet — add one to make it available in every template's builder."
         />
       </ListSection>

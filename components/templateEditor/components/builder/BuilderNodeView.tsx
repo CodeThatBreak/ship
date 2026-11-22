@@ -33,8 +33,8 @@ const TRIGGER_STYLE: Record<string, string> = {
 
 export function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
   const { node, selected, readonly, unlinked, choices, problems, onOpen } = data;
-  const label = node.overrideLabel || node.catalog_name || node.key;
-  const Icon = iconForIconName(node.icon, node.kind ?? (node.is_builtin ? node.key : null), node.key);
+  const label = node.overrideLabel || node.catalogName || node.key;
+  const Icon = iconForIconName(node.icon, node.kind ?? (node.isBuiltin ? node.key : null), node.key);
   const isDecision = node.kind === "decision";
   const branches = isDecision && choices?.length ? choices : null;
   return (
@@ -100,7 +100,7 @@ export function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) 
               ⧗ {(node.trigger.wait_for ?? "").slice(0, 14)}
             </span>
           )}
-          {node.join_mode === "any" && (
+          {node.joinMode === "any" && (
             <span className="rounded-lg px-1 py-px text-[9.5px] font-medium bg-warning/10 text-warning">any-join</span>
           )}
           {isDecision && (

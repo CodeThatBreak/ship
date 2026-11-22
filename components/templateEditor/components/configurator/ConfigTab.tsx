@@ -115,7 +115,7 @@ export function ConfigTab({
   // DeclarativeConfigFields form (also the Template Nodes create dialog's)
   // renders every knob the kind declares; values set here override the
   // catalog definition for this template instance
-  if (!node.is_builtin) {
+  if (!node.isBuiltin) {
     return (
       <div className="grid gap-3">
         {inheritHint}

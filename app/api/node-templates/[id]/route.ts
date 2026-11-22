@@ -13,7 +13,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
   try {
     const { id } = await params;
     const body = await parseJson(req, nodeTemplatePatchBodySchema);
-    if (body.add_to_library === true) {
+    if (body.addToLibrary === true) {
       const nt = await templateStore.addToLibrary(id);
       invalidateDeclarativeDef(id);
       return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });

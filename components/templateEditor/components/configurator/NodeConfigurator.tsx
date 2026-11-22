@@ -30,7 +30,7 @@ export type { IncomingLink, UpstreamGroup } from '../../hooks/useUpstreamGroups'
  * edit instance overrides through the same schema-driven form (their runtime
  * classes declare `configFields`). The Inputs tab (Phase 4) makes the node's
  * effective input visible and mappable: inherited rows from the connected
- * parents' published outputs, plus `input_map` mappings (the engine's
+ * parents' published outputs, plus `inputMap` mappings (the engine's
  * §3 overlay). The Inputs & outputs tab shows the per-source upstream inputs
  * and the node's own published outputs.
  *
@@ -112,7 +112,7 @@ export function NodeConfiguratorBody({
     [groups],
   );
   // the full picker vocabulary (Phase 3 + 4): my inputs (the inherited merge
-  // overlaid with the node's input_map) → task context → upstream nodes →
+  // overlaid with the node's inputMap) → task context → upstream nodes →
   // trigger payload — one shape for every variable surface
   const varGroups = useMemo(
     () =>
@@ -120,9 +120,9 @@ export function NodeConfiguratorBody({
         taskFields: taskFields ?? [],
         triggerFields: triggerFields ?? [],
         upstream: upstreamSources,
-        inputMap: (node?.input_map ?? {}) as Record<string, unknown>,
+        inputMap: (node?.inputMap ?? {}) as Record<string, unknown>,
       }),
-    [upstreamSources, taskFields, triggerFields, node?.input_map],
+    [upstreamSources, taskFields, triggerFields, node?.inputMap],
   );
   // only `next` edges inherit — the isolation hint keys on them
   const hasUpstream = groups.some((g) => g.edge.kind === NEXT_EDGE_KIND);

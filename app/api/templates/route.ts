@@ -31,9 +31,9 @@ export async function POST(req: Request) {
         key: "start",
         nodeTemplateId: "nt_start",
         trigger: { type: "auto" },
-        join_mode: "all",
+        joinMode: "all",
         config: {},
-        input_map: {},
+        inputMap: {},
       }],
       edges: [],
     });

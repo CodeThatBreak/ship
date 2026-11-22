@@ -72,13 +72,13 @@ export function EditorNodeDrawer({
             <SheetTitle className="flex items-center gap-2">
               {readonly ? (
                 <span className="truncate">
-                  {node.overrideLabel || node.catalog_name || node.key}
+                  {node.overrideLabel || node.catalogName || node.key}
                 </span>
               ) : (
                 <Input
                   aria-label="Display name"
                   value={node.overrideLabel ?? ""}
-                  placeholder={node.catalog_name ?? node.key}
+                  placeholder={node.catalogName ?? node.key}
                   className="h-7 w-1/2 rounded-none border-x-0 border-t-0 px-1.5 text-[15px] font-semibold focus-visible:ring-0"
                   onChange={(e) => {
                     if (readonly) return;
@@ -94,7 +94,7 @@ export function EditorNodeDrawer({
               <code className="font-mono">{node.key}</code>
               <span>·</span>
               <span>{describeTrigger(node.trigger)}</span>
-              {node.join_mode === "any" && (
+              {node.joinMode === "any" && (
                 <Badge className="bg-warning/10 text-warning text-[10px] py-0">
                   any-join
                 </Badge>

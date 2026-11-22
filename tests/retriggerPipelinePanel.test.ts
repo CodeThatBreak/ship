@@ -19,7 +19,7 @@ import type { FlowData, Node } from "@/types/flow";
 
 const node: Node = {
   id: "node-1",
-  node_key: "ci",
+  nodeKey: "ci",
   type: "pipeline",
   status: FLOW_STATUS.FAILED,
   kind: "builtin",
@@ -31,7 +31,7 @@ const flow: FlowData = {
   id: "flow-1",
   name: "Gate flow",
   status: "running",
-  mr_url: "https://git.example.com/o/r/-/merge_requests/1",
+  mrUrl: "https://git.example.com/o/r/-/merge_requests/1",
   branches: [],
   task: {
     key: "REL-1",

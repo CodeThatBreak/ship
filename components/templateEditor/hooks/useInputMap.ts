@@ -16,12 +16,12 @@ export interface SourceField {
   type?: string;
 }
 
-/** A field name the persisted input_map can carry: lowercase slug. */
+/** A field name the persisted inputMap can carry: lowercase slug. */
 export function slugOk(s: string): boolean {
   return /^[a-z][a-z0-9_]*$/.test(s);
 }
 
-/** The string-valued subset of the node's input_map (the engine ignores
+/** The string-valued subset of the node's inputMap (the engine ignores
  *  empty / non-string entries — `evalInputMap` filters the same way). */
 export function stringMapOf(inputMap: unknown): Record<string, string> {
   if (!inputMap || typeof inputMap !== "object" || Array.isArray(inputMap)) return {};
@@ -39,7 +39,7 @@ export interface InputMapEdit {
   /** the current expression text (raw JSONata over the flow context) */
   expr: string;
   /** the row this edit replaces: the inherited/mapped key at edit start —
-   *  a rename moves it out of input_map on commit */
+   *  a rename moves it out of inputMap on commit */
   originName: string | null;
   /** editing an inherited row: the name is fixed (the override must keep
    *  it so `{{input.<field>}}` refs in prompts keep resolving) */
@@ -56,7 +56,7 @@ export interface InputRowModel {
   type?: string;
   /** parents publishing this field — 2+ badges the last-wins conflict */
   from?: string[];
-  /** set when input_map maps this field (wins over the inherited value) */
+  /** set when inputMap maps this field (wins over the inherited value) */
   expr?: string;
 }
 
@@ -69,7 +69,7 @@ export interface InputMapOptions {
   triggerFields?: SourceField[];
 }
 
-/** One editing row at a time over a node's input_map, plus the combined
+/** One editing row at a time over a node's inputMap, plus the combined
  *  inherited + mapped row list. Callers own rendering (see InputsTab). */
 export function useInputMap({
   node,
@@ -79,13 +79,13 @@ export function useInputMap({
   triggerFields,
 }: InputMapOptions) {
   const inherited = useMemo(() => mergeUpstreamFields(upstream), [upstream]);
-  const map = useMemo(() => stringMapOf(node.input_map), [node.input_map]);
+  const map = useMemo(() => stringMapOf(node.inputMap), [node.inputMap]);
 
   /** the row being (re)mapped — null when the list is plain */
   const [editing, setEditing] = useState<InputMapEdit | null>(null);
 
   /** Add: the single commit point — the settled name + expression land in
-   *  input_map together (nothing is written while typing, so outside clicks
+   *  inputMap together (nothing is written while typing, so outside clicks
    *  and Cancel are a plain close). A rename moves the edited row's original
    *  key out of the way; mapping an inherited name writes the shadowing
    *  override. */
@@ -98,7 +98,7 @@ export function useInputMap({
       const origin = editing?.originName;
       if (origin && origin !== n) delete m[origin];
       m[n] = e;
-      onChange({ input_map: m });
+      onChange({ inputMap: m });
       setEditing(null);
     },
     [map, editing, onChange],
@@ -115,7 +115,7 @@ export function useInputMap({
     (name: string) => {
       const m = { ...map };
       delete m[name];
-      onChange({ input_map: m });
+      onChange({ inputMap: m });
     },
     [map, onChange],
   );

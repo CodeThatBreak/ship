@@ -29,7 +29,7 @@ export type InlineNodeInput = {
   def: string;
   trigger?: Record<string, unknown>;
   config?: Record<string, unknown>;
-  input_map?: Record<string, unknown>;
+  inputMap?: Record<string, unknown>;
 };
 
 export type InlineEdgeInput = {
@@ -100,7 +100,7 @@ export class FlowHarness {
           nodeTemplateId: n.def,
           trigger: n.trigger ?? { type: "auto" },
           ...(n.config ? { config: n.config } : {}),
-          ...(n.input_map ? { input_map: n.input_map } : {}),
+          ...(n.inputMap ? { inputMap: n.inputMap } : {}),
         })),
         edges: edges.map((e) => ({
           from: e.from,

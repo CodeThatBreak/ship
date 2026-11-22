@@ -21,7 +21,7 @@ import type { BranchRow, FlowData, Node } from "@/types/flow";
 
 const branchRow: BranchRow = {
   id: "branch-1",
-  flow_id: "flow-1",
+  flowId: "flow-1",
   name: "changelog/2026-47",
   title: "Release changelog",
   status: "done",
@@ -30,7 +30,7 @@ const branchRow: BranchRow = {
 
 const node: Node = {
   id: "node-1",
-  node_key: "changelog",
+  nodeKey: "changelog",
   type: "custom_def_key",
   kind: "custom_kind",
   status: FLOW_STATUS.DONE,

@@ -16,9 +16,9 @@ export interface TemplateNodeInput {
   nodeTemplateId: string;
   label?: string | null;
   trigger?: Record<string, unknown>;
-  join_mode?: string;
+  joinMode?: string;
   config?: Record<string, unknown>;
-  input_map?: Record<string, unknown>;
+  inputMap?: Record<string, unknown>;
   x?: number | null;
   y?: number | null;
 }

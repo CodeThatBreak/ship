@@ -17,7 +17,7 @@ export type Artifact = {
   version: number;
   status: string;
   feedback?: string;
-  created_at: string;
+  createdAt: string;
   /** the engine's per-kind JSON blob (plan-meta, webhook payload log, …) */
   meta?: ArtifactMeta;
 };
@@ -49,14 +49,14 @@ export type UsageRollup = {
 };
 export type Node = {
   id: string;
-  node_key: string;
+  nodeKey: string;
   type: string;
   status: string;
-  agent_id?: string | null;
+  agentId?: string | null;
   /** template display name override; null = the node template's own label */
   label?: string | null;
   /** the node template's own display name (when no instance label is set) */
-  template_name?: string | null;
+  templateName?: string | null;
   /** catalog kind (builtin | agent | …) and icon name for the generic panel */
   kind?: string | null;
   icon?: string | null;
@@ -64,7 +64,7 @@ export type Node = {
   config?: Record<string, unknown> | null;
   /** the node's serializable UI capabilities (refine/chat/panel title, §3.2) */
   capabilities?: NodeUiCapabilities | null;
-  join_mode?: string | null;
+  joinMode?: string | null;
   /** the node's contract input (the run's effective payload) */
   input?: Record<string, unknown> | null;
   /** the node's last published output (variables other nodes reference) */
@@ -74,19 +74,19 @@ export type Node = {
 };
 export type BranchRow = {
   id: string;
-  flow_id: string;
+  flowId: string;
   name: string;
   title?: string;
   status: string;
-  mr_url?: string;
-  mr_iid?: number;
+  mrUrl?: string;
+  mrIid?: number;
   order: number;
 };
 export type PlanStepRow = {
   id: string;
-  flow_id: string;
-  artifact_id?: string | null;
-  meta_id?: string | null;
+  flowId: string;
+  artifactId?: string | null;
+  metaId?: string | null;
   position: number;
   title: string;
   detail?: string | null;
@@ -94,9 +94,9 @@ export type PlanStepRow = {
   branch?: string | null;
   status: string;
   origin: string;
-  completed_by?: string | null;
+  completedBy?: string | null;
   /** plan fan-out: the child flow building this step (parent panel step cards) */
-  sub_flow?: {
+  subFlow?: {
     id: string;
     name: string;
     status: string;
@@ -120,11 +120,11 @@ export type FlowData = {
   id: string;
   name: string;
   status: string;
-  mr_url?: string;
-  mr_iid?: number;
-  mr_branch?: string;
-  repo_url?: string;
-  execution_mode?: string;
+  mrUrl?: string;
+  mrIid?: number;
+  mrBranch?: string;
+  repoUrl?: string;
+  executionMode?: string;
   cost?: { totalCents: number; tokens: number; runCount: number };
   /** Task 21 (use case 8d): the flow's `usage` artifacts rolled up across
    *  runs — null when no run established one */
@@ -134,7 +134,7 @@ export type FlowData = {
   branches?: BranchRow[];
   planSteps?: PlanStepRow[];
   /** inbound hooks feeding this flow's waiting nodes (wait_for webhook); `secret` is masked — use GET /api/hooks/:id/secret to reveal */
-  hooks?: { id: string; flow_id: string; node_key: string | null; secret: string; filter: string | null }[];
+  hooks?: { id: string; flowId: string; nodeKey: string | null; secret: string; filter: string | null }[];
   task: {
     key: string;
     summary: string;

@@ -49,7 +49,7 @@ function lintNode(n: Draft["nodes"][number]) {
     key: n.key,
     nodeTemplateId: n.nodeTemplateId,
     config: n.config,
-    input_map: n.input_map,
+    inputMap: n.inputMap,
   };
 }
 
@@ -104,7 +104,7 @@ export function useTemplateValidation(
             trigger: d.template.trigger,
             nodes: d.nodes.map(lintNode),
             edges: d.edges.map(lintEdge),
-            new_node_templates: collectPendingDefs(d),
+            newNodeTemplates: collectPendingDefs(d),
           }),
         });
       } catch (e) {
@@ -135,7 +135,7 @@ export function useTemplateValidation(
 
   // debounced while edited
   useEffect(() => {
-    if (!draft || draft.template.is_builtin) return;
+    if (!draft || draft.template.isBuiltin) return;
     const timer = setTimeout(() => {
       void validate(draft).catch(() => {
         /* live lint: keep the last known problems on transient failures */

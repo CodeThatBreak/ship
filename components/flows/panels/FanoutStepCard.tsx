@@ -36,12 +36,12 @@ export type FanoutStepCardState = {
 
 /** Per-step card state chip (plan fan-out §5). */
 export const fanoutStepState = (s: PlanStepRow): FanoutStepCardState => {
-  if (s.completed_by === "skipped")
+  if (s.completedBy === "skipped")
     return { label: "skipped", className: "bg-zinc-500/10 text-zinc-400", icon: SkipForward };
   if (s.status === FLOW_STATUS.DONE)
     return { label: "merged", className: "bg-success/10 text-success", icon: CheckCircle2 };
-  const ns = s.sub_flow?.nodeStatus ?? null;
-  const ms = s.sub_flow?.mergeStatus ?? null;
+  const ns = s.subFlow?.nodeStatus ?? null;
+  const ms = s.subFlow?.mergeStatus ?? null;
   if (ms === "running") return { label: "merging", className: "bg-info/10 text-info", icon: GitMerge };
   if (ms === "conflict") {
     if (ns === FLOW_STATUS.RUNNING)
@@ -64,7 +64,7 @@ export const fanoutStepState = (s: PlanStepRow): FanoutStepCardState => {
 };
 
 const StaleBaseChip = ({ s }: { s: PlanStepRow }) => {
-  if (!s.sub_flow?.staleBase || s.status === FLOW_STATUS.DONE || s.completed_by === "skipped")
+  if (!s.subFlow?.staleBase || s.status === FLOW_STATUS.DONE || s.completedBy === "skipped")
     return null;
   return (
     <Badge
@@ -78,11 +78,11 @@ const StaleBaseChip = ({ s }: { s: PlanStepRow }) => {
 };
 
 const StepCostChip = ({ s }: { s: PlanStepRow }) => {
-  const runs = s.sub_flow?.runCount ?? 0;
+  const runs = s.subFlow?.runCount ?? 0;
   if (!runs) return null;
-  const cents = s.sub_flow?.costCents ?? 0;
-  const dur = s.sub_flow?.durationMs ?? 0;
-  const tok = s.sub_flow?.tokens ?? 0;
+  const cents = s.subFlow?.costCents ?? 0;
+  const dur = s.subFlow?.durationMs ?? 0;
+  const tok = s.subFlow?.tokens ?? 0;
   return (
     <Badge
       variant="outline"
@@ -119,8 +119,8 @@ export const FanoutStepCard = ({
   onSkip: (stepId: string) => void;
 }) => {
   const Icon = state.icon;
-  const ms = step.sub_flow?.mergeStatus ?? null;
-  const subFlow = step.sub_flow;
+  const ms = step.subFlow?.mergeStatus ?? null;
+  const subFlow = step.subFlow;
   const [showDiff, setShowDiff] = useState(false);
 
   return (

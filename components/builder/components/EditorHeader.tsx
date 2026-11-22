@@ -16,7 +16,7 @@ export interface EditorHeaderProps {
     id: string;
     name: string;
     version: number;
-    is_builtin: boolean;
+    isBuiltin: boolean;
   };
   nodeCount: number;
   edgeCount: number;

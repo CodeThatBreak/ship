@@ -39,7 +39,7 @@ export default function WorkflowGraph({
 }) {
   const graphQuery = useGraphDef(flowId ?? '');
   const graphDef = graphQuery.data;
-  const keys = useMemo(() => nodes.map((n) => n.node_key), [nodes]);
+  const keys = useMemo(() => nodes.map((n) => n.nodeKey), [nodes]);
   const edges = useMemo(() => graphDef?.edges ?? [], [graphDef?.edges]);
   const layoutSignature = useMemo(
     () =>
@@ -86,13 +86,13 @@ export default function WorkflowGraph({
       />
       {nodes.map(n => (
         <WorkflowNodeCard
-          key={n.node_key}
+          key={n.nodeKey}
           node={n}
           meta={meta}
-          position={positions.get(n.node_key) ?? { x: 0, y: 0 }}
-          selected={selected === n.node_key}
-          running={runningKeys.has(n.node_key)}
-          fanout={fanout?.[n.node_key]}
+          position={positions.get(n.nodeKey) ?? { x: 0, y: 0 }}
+          selected={selected === n.nodeKey}
+          running={runningKeys.has(n.nodeKey)}
+          fanout={fanout?.[n.nodeKey]}
           onSelect={onSelect}
         />
       ))}

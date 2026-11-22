@@ -17,11 +17,11 @@ describe('WorktreeDepSetup.depOverrides', () => {
     }));
 
     expect(overrides).toEqual({
-      install_command: 'pnpm install',
-      skip_install: true,
-      setup_command: 'pnpm db:setup',
-      sync_paths: '.env*',
-      shared_dirs: 'data:uploads',
+      installCommand: 'pnpm install',
+      skipInstall: true,
+      setupCommand: 'pnpm db:setup',
+      syncPaths: '.env*',
+      sharedDirs: 'data:uploads',
     });
   });
 

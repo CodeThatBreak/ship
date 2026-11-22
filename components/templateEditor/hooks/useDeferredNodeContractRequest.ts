@@ -11,7 +11,7 @@ import {
 
 type ContractNode = Pick<
   EditorNode,
-  "nodeTemplateId" | "kind" | "catalog_name" | "config"
+  "nodeTemplateId" | "kind" | "catalogName" | "config"
 >;
 
 export const useDeferredNodeContractRequest = (
@@ -19,7 +19,7 @@ export const useDeferredNodeContractRequest = (
 ): NodeContractRequest | null => {
   const nodeTemplateId = node?.nodeTemplateId;
   const kind = node?.kind ?? null;
-  const catalogName = node?.catalog_name ?? null;
+  const catalogName = node?.catalogName ?? null;
   const configSignature = node ? contractConfigSignature(node.config) : "none";
 
   const relevantCache = useRef<{
@@ -41,7 +41,7 @@ export const useDeferredNodeContractRequest = (
       {
         nodeTemplateId,
         kind,
-        catalog_name: catalogName,
+        catalogName: catalogName,
       },
       deferredConfig,
     );

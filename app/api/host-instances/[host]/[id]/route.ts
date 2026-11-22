@@ -20,13 +20,13 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ host: 
     const svc = gitHostRegistry.maybe(host);
     if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
     const body = await parseJson(req, gitHostInstancePatchBodySchema);
-    const nextBase = body.baseUrl ?? body.base_url;
+    const nextBase = body.baseUrl;
     if (nextBase) {
       await validateGitHostInstanceBaseUrl(svc, id, nextBase);
     }
     await svc.updateInstance(id, {
       name: body.name,
-      baseUrl: body.baseUrl ?? body.base_url,
+      baseUrl: body.baseUrl,
       token: body.token,
     });
     return NextResponse.json({ ok: true });
@@ -56,7 +56,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ host: s
     const body = await parseJson(req, gitHostInstanceTestBodySchema);
     const existing = (await svc.instances()).find((i) => i.id === id);
     if (!existing) return NextResponse.json({ error: `host instance not found: ${id}` }, { status: 404 });
-    const baseUrl = await resolveInstanceTestBaseUrl(existing.baseUrl, body.baseUrl ?? body.base_url);
+    const baseUrl = await resolveInstanceTestBaseUrl(existing.baseUrl, body.baseUrl);
     const result = await svc.testInstance(id, { baseUrl, token: body.token });
     return NextResponse.json(result);
   } catch (e: unknown) {

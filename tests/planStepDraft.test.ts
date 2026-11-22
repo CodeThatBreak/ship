@@ -8,7 +8,7 @@ describe("plan step drafts", () => {
         id: "step-1",
         title: "T",
         status: "pending",
-        flow_id: "f",
+        flowId: "f",
         position: 0,
         files: [],
         origin: "user",

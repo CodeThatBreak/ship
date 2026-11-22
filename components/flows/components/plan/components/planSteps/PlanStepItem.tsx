@@ -70,7 +70,7 @@ export function PlanStepItem({
               {step.branch}
             </Badge>
           )}
-          {step.completed_by === PLAN_STEP_COMPLETED_BY.BUILD && isDone && (
+          {step.completedBy === PLAN_STEP_COMPLETED_BY.BUILD && isDone && (
             <Badge className="bg-success/10 text-success">
               <Check size={10} /> by build
             </Badge>

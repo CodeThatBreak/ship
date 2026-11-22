@@ -182,7 +182,7 @@ export function useTemplateDraft(
       )
         return;
       e.preventDefault();
-      if (draftRef.current?.template.is_builtin) return;
+      if (draftRef.current?.template.isBuiltin) return;
       if (e.shiftKey) redo();
       else undo();
     };

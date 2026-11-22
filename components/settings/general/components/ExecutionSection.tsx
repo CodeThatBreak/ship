@@ -58,8 +58,8 @@ export function ExecutionSection({ settings, onError }: {
       <Card className="p-4 grid gap-4">
         <ModeCascade
           harnesses={mode.harnesses}
-          selectedKey={settings.default_harness || null}
-          savedMode={settings.default_execution_mode}
+          selectedKey={settings.defaultHarness || null}
+          savedMode={settings.defaultExecutionMode}
           saving={isModePending}
           onSaveHarness={saveHarness}
           onSaveMode={saveMode}

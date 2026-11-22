@@ -21,13 +21,13 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ kind: 
   if (!provider || !store) return NextResponse.json({ error: `unknown task provider: ${kind}` }, { status: 404 });
   try {
     const body = await parseJson(req, taskInstancePatchBodySchema);
-    const nextBase = body.baseUrl ?? body.base_url;
+    const nextBase = body.baseUrl;
     if (nextBase) {
       await validateTaskInstanceBaseUrl(() => store.instances(), id, nextBase);
     }
     await store.updateInstance(id, {
       name: body.name,
-      baseUrl: body.baseUrl ?? body.base_url,
+      baseUrl: body.baseUrl,
       email: body.email,
       token: body.token,
     });
@@ -60,7 +60,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ kind: s
     const body = await parseJson(req, taskInstanceTestBodySchema);
     const existing = (await store.instances()).find((i) => i.id === id);
     if (!existing) return NextResponse.json({ error: `task instance not found: ${id}` }, { status: 404 });
-    const baseUrl = await resolveInstanceTestBaseUrl(existing.baseUrl, body.baseUrl ?? body.base_url);
+    const baseUrl = await resolveInstanceTestBaseUrl(existing.baseUrl, body.baseUrl);
     const result = await store.testInstance(id, {
       baseUrl,
       email: body.email,

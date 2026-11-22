@@ -7,7 +7,7 @@
  *
  *   • inputs   — this node's effective run input, `{{input.<field>}}`
  *                ("My inputs": the inherited parent merge overlaid with the
- *                node's `input_map` mappings — logical: re-mapping a field's
+ *                node's `inputMap` mappings — logical: re-mapping a field's
  *                source never breaks a prompt that addresses it)
  *   • task     — the template's task context, `{{task.<key>}}` (no wiring)
  *   • upstream — one group per connected upstream node's published outputs,
@@ -144,7 +144,7 @@ export function buildVarGroups(opts: {
   taskFields?: { key: string; label?: string; type?: string }[];
   triggerFields?: { key: string; label?: string; type?: string }[];
   upstream?: UpstreamVarSource[];
-  /** this node's `input_map` (Phase 4): `{field: "<JSONata>"}` mappings the
+  /** this node's `inputMap` (Phase 4): `{field: "<JSONata>"}` mappings the
    *  engine overlays on the inherited merge at run time — "My inputs" shows
    *  the effective input, each mapped field's origin annotated in its
    *  description ("mapped: Build · output.plan"). */
@@ -153,7 +153,7 @@ export function buildVarGroups(opts: {
   const groups: VarGroup[] = [];
 
   // inputs — the parents' merged published fields, addressed logically, with
-  // the node's input_map mappings overlaid (mapped fields win at run time,
+  // the node's inputMap mappings overlaid (mapped fields win at run time,
   // so they win here too)
   const upstream = opts.upstream ?? [];
   const inherited = mergeUpstreamFields(upstream);

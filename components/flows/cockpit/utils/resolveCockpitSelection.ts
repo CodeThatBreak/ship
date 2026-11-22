@@ -10,7 +10,7 @@ export const runningNodeKeysOf = (nodes: Node[]): Set<string> =>
   new Set(
     nodes
       .filter((n) => n.status === FLOW_STATUS.RUNNING)
-      .map((n) => n.node_key),
+      .map((n) => n.nodeKey),
   );
 
 /**
@@ -19,4 +19,4 @@ export const runningNodeKeysOf = (nodes: Node[]): Set<string> =>
  * picks a node.
  */
 export const resolveCockpitSelectedKey = (selected: string, nodes: Node[]): string =>
-  selected || nodes.find((n) => n.status === FLOW_STATUS.RUNNING)?.node_key || "";
+  selected || nodes.find((n) => n.status === FLOW_STATUS.RUNNING)?.nodeKey || "";

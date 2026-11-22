@@ -80,11 +80,11 @@ export const WebhookPayloadDialog = ({
     repos.find((r) => r.id === (repoId ?? defaultRepoId ?? "")) ?? repos[0] ?? null;
   const harnesses = settings?.harnesses ?? [];
   const harness: Harness | null =
-    harnesses.find((h) => h.key === (harnessKey ?? settings?.default_harness ?? "")) ??
+    harnesses.find((h) => h.key === (harnessKey ?? settings?.defaultHarness ?? "")) ??
     harnesses[0] ??
     null;
   const modeValue: string | null =
-    harness?.modes.find((m) => m.value === (mode ?? settings?.default_execution_mode ?? ""))
+    harness?.modes.find((m) => m.value === (mode ?? settings?.defaultExecutionMode ?? ""))
       ?.value ??
     harness?.modes[0]?.value ??
     null;

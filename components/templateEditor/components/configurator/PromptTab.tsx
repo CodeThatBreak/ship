@@ -65,7 +65,7 @@ export function PromptTab({
   if (!fields.length) {
     return <p className="text-muted-foreground text-[13px]">This node has no prompt.</p>;
   }
-  const section: PromptTemplateSection | undefined = node.is_builtin
+  const section: PromptTemplateSection | undefined = node.isBuiltin
     ? contract.prompt?.[0]
     : undefined;
   const decisionSource = String(node.config?.source ?? defaults.source ?? "");

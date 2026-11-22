@@ -70,14 +70,14 @@ export function usePaletteCatalog({
   const { builtins, localEntries, libByKind, other } = useMemo(() => {
     const data = catalogQuery.data;
     return {
-      builtins: (data?.nodeTemplates ?? []).filter((n) => n.is_builtin),
-      localEntries: newestByKey((data?.templateNodeTemplates ?? []).filter((n) => !n.is_builtin)),
+      builtins: (data?.nodeTemplates ?? []).filter((n) => n.isBuiltin),
+      localEntries: newestByKey((data?.templateNodeTemplates ?? []).filter((n) => !n.isBuiltin)),
       libByKind: KIND_GROUPS.map((g) => ({
         ...g,
-        entries: newestByKey((data?.nodeTemplates ?? []).filter((n) => !n.is_builtin && n.kind === g.kind)),
+        entries: newestByKey((data?.nodeTemplates ?? []).filter((n) => !n.isBuiltin && n.kind === g.kind)),
       })).filter((g) => g.entries.length > 0),
       other: newestByKey(
-        (data?.nodeTemplates ?? []).filter((n) => !n.is_builtin && !KIND_GROUPS.some((g) => g.kind === n.kind)),
+        (data?.nodeTemplates ?? []).filter((n) => !n.isBuiltin && !KIND_GROUPS.some((g) => g.kind === n.kind)),
       ),
     };
   }, [catalogQuery.data]);

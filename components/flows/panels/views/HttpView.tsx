@@ -36,7 +36,7 @@ export function HttpView() {
       </span>
       <div className="flex-1" />
       {awaiting && (
-        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.nodeKey })}>
           <CheckCheck size={14} /> Approve
         </Button>
       )}

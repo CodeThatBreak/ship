@@ -232,7 +232,7 @@ const ROLLUP_ROW = await templateStore.createNodeTemplate({
 //
 // The rollup's `units` input is mapped explicitly with JSONata: the worker
 // publishes its aggregate `{units: [...]}` at run time, but a markdown agent's
-// lint contract is `{markdown}` — the input_map declares the aggregate field
+// lint contract is `{markdown}` — the inputMap declares the aggregate field
 // so `{{input.units}}` lints and the join output flows on.
 const TEMPLATE_ID = await templateStore.create({
   name: "Split smoke: units fan-out",
@@ -247,7 +247,7 @@ const TEMPLATE_ID = await templateStore.create({
       key: "smoke_rollup",
       nodeTemplateId: ROLLUP_ROW.id,
       trigger: { type: "auto" },
-      input_map: { units: "nodes.smoke_unit_worker.output.units" },
+      inputMap: { units: "nodes.smoke_unit_worker.output.units" },
     },
   ],
   edges: [

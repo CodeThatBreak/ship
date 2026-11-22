@@ -86,12 +86,12 @@ export class FlowReadModel {
       }),
     ).map((s) => ({ ...s, files: s.files ?? [] }));
 
-    /** rows.ts rows are camelCase; the UI read model keeps its snake_case shape. */
+    /** rows.ts rows and the UI read model both use camelCase keys. */
     const toUiStep = (s: (typeof steps)[number]) => ({
       id: s.id,
-      flow_id: s.flowId,
-      artifact_id: s.artifactId,
-      meta_id: s.metaId,
+      flowId: s.flowId,
+      artifactId: s.artifactId,
+      metaId: s.metaId,
       position: s.position,
       title: s.title,
       detail: s.detail,
@@ -99,8 +99,7 @@ export class FlowReadModel {
       branch: s.branch,
       status: s.status,
       origin: s.origin,
-      completed_by: s.completedBy,
-      sub_flow_id: s.subFlowId,
+      completedBy: s.completedBy,
     });
 
     const childFlowIds = steps.map((s) => s.subFlowId).filter((v): v is string => Boolean(v));
@@ -160,7 +159,7 @@ export class FlowReadModel {
       const ms = mergeStateMap[s.subFlowId] ?? null;
       return {
         ...base,
-        sub_flow: {
+        subFlow: {
           id: child.id,
           name: child.name,
           status: child.status,
@@ -209,21 +208,21 @@ export class FlowReadModel {
       id: flow.id,
       name: flow.name,
       status: flow.status,
-      mr_url: flow.mrUrl ?? undefined,
-      mr_iid: flow.mrIid ?? undefined,
-      mr_branch: flow.mrBranch ?? undefined,
-      repo_url: flow.repoUrl ?? undefined,
-      execution_mode: flow.executionMode ?? undefined,
+      mrUrl: flow.mrUrl ?? undefined,
+      mrIid: flow.mrIid ?? undefined,
+      mrBranch: flow.mrBranch ?? undefined,
+      repoUrl: flow.repoUrl ?? undefined,
+      executionMode: flow.executionMode ?? undefined,
       cost: flowCost,
       usage: usage ?? undefined,
       branches: branches.map((b) => ({
         id: b.id,
-        flow_id: b.flowId,
+        flowId: b.flowId,
         name: b.name,
         title: b.title ?? undefined,
         status: b.status,
-        mr_url: b.mrUrl ?? undefined,
-        mr_iid: b.mrIid ?? undefined,
+        mrUrl: b.mrUrl ?? undefined,
+        mrIid: b.mrIid ?? undefined,
         order: b.order,
       })),
       planSteps: stepsEnriched,
@@ -232,7 +231,7 @@ export class FlowReadModel {
       hooks: (await hookStore.hooksForFlow(id)).flatMap((h: HookRow) =>
         h.flowId == null
           ? []
-          : [{ id: h.id, flow_id: h.flowId, node_key: h.nodeKey, secret: maskHookSecret(h.secret), filter: h.filter }],
+          : [{ id: h.id, flowId: h.flowId, nodeKey: h.nodeKey, secret: maskHookSecret(h.secret), filter: h.filter }],
       ),
       nodes: await Promise.all(nodeRows.map(async (n): Promise<FlowNode> => {
         const nt = ntOf(n.type);
@@ -242,17 +241,17 @@ export class FlowReadModel {
         const cost = nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] };
         return {
           id: n.id,
-          node_key: n.nodeKey,
+          nodeKey: n.nodeKey,
           type: n.type,
           status: n.status,
-          agent_id: n.agentId,
+          agentId: n.agentId,
           label: n.label,
-          template_name: nt?.name ?? null,
+          templateName: nt?.name ?? null,
           kind: nt?.kind ?? null,
           icon: nt?.icon ?? null,
           config: n.config,
           capabilities: uiCapabilities(def?.capabilities),
-          join_mode: n.joinMode,
+          joinMode: n.joinMode,
           input: n.input,
           output: n.output,
           artifacts: (artifactsByNodeId.get(n.id) ?? []).map(toFlowArtifact),

@@ -15,7 +15,7 @@ import { ThreadListSkeleton } from '../review/ThreadListSkeleton';
 export default function ReviewView() {
   const { flow, node, action, model } = useNodePanel();
 
-  const commentsQuery = useFlowComments(flow.id, Boolean(flow.mr_iid));
+  const commentsQuery = useFlowComments(flow.id, Boolean(flow.mrIid));
   const comments = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
 
   const threads = useMemo(() => buildThreads(comments), [comments]);
@@ -24,7 +24,7 @@ export default function ReviewView() {
   const running = node.status === FLOW_STATUS.RUNNING;
   const commentIssue = commentsQuery.isLoading || commentsQuery.isError;
 
-  const footer = flow.mr_iid ? (
+  const footer = flow.mrIid ? (
     <>
       <span className="text-xs text-muted-foreground">
         {openThreads.length > 0
@@ -48,11 +48,11 @@ export default function ReviewView() {
   return (
     <>
       <PanelShell node={node} runningLabel="Agent is reviewing the merge request…" footer={footer}>
-        {!flow.mr_iid && <p className="text-muted-foreground">Review runs after the merge request is created.</p>}
+        {!flow.mrIid && <p className="text-muted-foreground">Review runs after the merge request is created.</p>}
 
-        {flow.mr_iid && commentsQuery.isLoading && <ThreadListSkeleton />}
+        {flow.mrIid && commentsQuery.isLoading && <ThreadListSkeleton />}
 
-        {flow.mr_iid && commentsQuery.isError && !commentsQuery.isLoading && (
+        {flow.mrIid && commentsQuery.isError && !commentsQuery.isLoading && (
           <div className="flex items-center gap-2 text-[13px] text-destructive" role="alert">
             <CircleAlert size={16} className="shrink-0" />
             Failed to load the MR comments.
@@ -62,7 +62,7 @@ export default function ReviewView() {
           </div>
         )}
 
-        {flow.mr_iid && comments.length === 0 && !commentIssue && !running && (
+        {flow.mrIid && comments.length === 0 && !commentIssue && !running && (
           <EmptyHint icon={MessageSquare}>
             No MR comments yet. Run an AI review, or wait for reviewers / the webhook.
           </EmptyHint>

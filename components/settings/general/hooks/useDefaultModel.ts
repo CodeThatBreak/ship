@@ -5,7 +5,7 @@ import { useModels } from "@/components/chat/hooks/useModels";
 import { usePatchSettings } from "./usePatchSettings";
 
 /**
- * The default-model select. `default_model` arrives from the API normalized —
+ * The default-model select. `defaultModel` arrives from the API normalized —
  * no bracket params — and matching rows are normalized by the DB migration;
  * when the catalog is unreachable the stored default is still kept selectable
  * by prepending it to the fallback list.
@@ -17,7 +17,7 @@ export function useDefaultModel(settings: Settings) {
 
   const { options, stored, source } = useMemo(() => {
     const list = models?.models ?? [];
-    const base = (settings.default_model ?? "").trim();
+    const base = (settings.defaultModel ?? "").trim();
     // catalog fallback (same semantics as before): keep the stored default
     // selectable even when the model list can't show it
     return {
@@ -25,11 +25,11 @@ export function useDefaultModel(settings: Settings) {
       stored: base || null,
       source: models?.source ?? null,
     };
-  }, [models, settings.default_model]);
+  }, [models, settings.defaultModel]);
 
   const save = useCallback(
     (value: string | null, handlers?: { onSuccess?: () => void; onError?: (e: Error) => void }) => {
-      mutate({ default_model: value ?? "" }, handlers);
+      mutate({ defaultModel: value ?? "" }, handlers);
     },
     [mutate],
   );

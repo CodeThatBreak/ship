@@ -253,7 +253,7 @@ export class SplitExpander {
           nodeTemplateId: row.id,
           trigger: { type: "auto" },
           config: stripSplitKeys(spec?.config ?? {}),
-          input_map: spec?.inputMap ?? {},
+          inputMap: spec?.inputMap ?? {},
         },
       ],
       edges: [],

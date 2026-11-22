@@ -18,18 +18,18 @@ import type { BranchRow, FlowData, Node } from "@/types/flow";
 
 const branchDone: BranchRow = {
   id: "branch-1",
-  flow_id: "flow-1",
+  flowId: "flow-1",
   name: "devflow/build-login",
   title: "Login form",
   status: "done",
-  mr_url: "https://git.example.com/mrs/12",
-  mr_iid: 12,
+  mrUrl: "https://git.example.com/mrs/12",
+  mrIid: 12,
   order: 0,
 };
 
 const branchAwaiting: BranchRow = {
   id: "branch-2",
-  flow_id: "flow-1",
+  flowId: "flow-1",
   name: "devflow/build-signup",
   title: "Signup form",
   status: "awaiting_approval",
@@ -38,7 +38,7 @@ const branchAwaiting: BranchRow = {
 
 const node: Node = {
   id: "node-1",
-  node_key: "custom",
+  nodeKey: "custom",
   type: "custom_def_key",
   kind: "custom_kind",
   status: "done",
@@ -98,8 +98,8 @@ describe("BranchFactRow", () => {
         name: branchDone.name,
         status: branchDone.status,
         title: branchDone.title,
-        mrUrl: branchDone.mr_url,
-        mrIid: branchDone.mr_iid,
+        mrUrl: branchDone.mrUrl,
+        mrIid: branchDone.mrIid,
       }),
     );
     expect(html).toContain("Login form");
@@ -155,7 +155,7 @@ describe("generic declarative panel — branch/change_request facts (task 09)", 
   it("renders the flow-level change_request fact as the MR link", () => {
     const html = renderPanelBody(
       GenericDeclarativePanel,
-      contextFor({ branches: [], mr_url: "https://git.example.com/mrs/7", mr_iid: 7, mr_branch: "devflow/build-x" }),
+      contextFor({ branches: [], mrUrl: "https://git.example.com/mrs/7", mrIid: 7, mrBranch: "devflow/build-x" }),
     );
     expect(html).toContain("MR !7");
     expect(html).toContain('href="https://git.example.com/mrs/7"');

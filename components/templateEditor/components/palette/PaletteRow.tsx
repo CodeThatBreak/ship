@@ -20,10 +20,10 @@ export function PaletteRow({
    *  the row hands over its own identity; no handlers minted in `.map()` */
   onAdd: (rowId: string, isBuiltin: boolean, catalogKey: string, name: string) => void;
 }) {
-  const Icon = iconForIconName(n.icon, n.is_builtin ? n.key : n.kind, n.key);
+  const Icon = iconForIconName(n.icon, n.isBuiltin ? n.key : n.kind, n.key);
   return (
     <button
-      onClick={() => onAdd(n.id, n.is_builtin, n.key, n.name)}
+      onClick={() => onAdd(n.id, n.isBuiltin, n.key, n.name)}
       disabled={disabled}
       className={cn(
         "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-colors",

@@ -46,7 +46,7 @@ export default function StartView() {
       input[f.key] = v;
     }
     Promise.resolve(action(FLOW_ACTION.RUN_NODE, {
-      nodeKey: node.node_key,
+      nodeKey: node.nodeKey,
       input: fields.length ? input : undefined,
     })).finally(() => setSubmitting(false));
   };
@@ -105,7 +105,7 @@ export default function StartView() {
             </div>
           )}
           <p className="text-[11px] text-muted-foreground m-0">
-            The next nodes map from these — each pick resolves {`{{nodes.${node.node_key}.output.<field>}}`} at run time.
+            The next nodes map from these — each pick resolves {`{{nodes.${node.nodeKey}.output.<field>}}`} at run time.
           </p>
         </section>
       )}

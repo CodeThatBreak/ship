@@ -7,7 +7,7 @@
  *
  * - Flow-level: `active` — a flow that is not finished/archived.
  * - Node / branch build statuses: the run-state machine shared by nodes
- *   (`Node.status`, `PlanStepRow.sub_flow.nodeStatus`) and MR branches
+ *   (`Node.status`, `PlanStepRow.subFlow.nodeStatus`) and MR branches
  *   (`BranchRow.status`).
  */
 export const FLOW_STATUS = {

@@ -45,10 +45,10 @@ export default function PlanNodeChat() {
 
   return (
     <ChatPanel
-      initialDraft={prompts?.[node.node_key]}
+      initialDraft={prompts?.[node.nodeKey]}
       flowId={flow.id}
-      nodeKey={node.node_key}
-      nodeLabel={node.label ?? node.template_name ?? node.node_key}
+      nodeKey={node.nodeKey}
+      nodeLabel={node.label ?? node.templateName ?? node.nodeKey}
       capabilities={node.capabilities}
       busy={busy}
       events={events}

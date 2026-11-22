@@ -20,24 +20,24 @@ import type { RepoSummary } from "@/types/repos";
 /** A registered repo's editor-facing slice (GET /repos list) — the Bound-repo picker's option. */
 export type EditorRepoChoice = Pick<RepoSummary, "id" | "name" | "localPath">;
 
-/** One node instance row in the editor payload (snake_case API shape). */
+/** One node instance row in the editor payload. */
 export interface EditorNodeRow {
   key: string;
-  node_template_id: string;
+  nodeTemplateId: string;
   label: string | null;
   /** per-node event trigger ({type, minutes?, wait_for?}, plus extras) */
   trigger: Record<string, unknown> | null;
-  join_mode: string | null;
+  joinMode: string | null;
   config: Record<string, unknown>;
-  input_map: Record<string, unknown>;
+  inputMap: Record<string, unknown>;
   kind: string | null;
   icon: string | null;
-  catalog_name: string | null;
+  catalogName: string | null;
   /** node_templates row key ("plan"/"start"/...) — the fan-out UI gate */
-  catalog_key: string | null;
-  is_builtin: boolean;
+  catalogKey: string | null;
+  isBuiltin: boolean;
   /** the backing row is local to this template (the canvas creator's rows) */
-  is_local: boolean;
+  isLocal: boolean;
   x: number | null;
   y: number | null;
 }
@@ -57,7 +57,7 @@ export interface EditorTemplateRow {
   name: string;
   description: string | null;
   version: number;
-  is_builtin: boolean;
+  isBuiltin: boolean;
   trigger: Record<string, unknown>;
 }
 
@@ -91,14 +91,14 @@ export interface EditorCatalogEntry {
   name: string;
   kind: string;
   version: number;
-  is_builtin: boolean;
+  isBuiltin: boolean;
   description: string | null;
   icon: string | null;
   /** owning template — set = template-local (the palette's "This template") */
-  template_id?: string | null;
-  is_local?: boolean;
+  templateId?: string | null;
+  isLocal?: boolean;
   /** the declarative def's config (the row's knob defaults) */
   config?: Record<string, unknown> | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }

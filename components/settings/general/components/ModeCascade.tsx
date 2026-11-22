@@ -11,7 +11,7 @@ import { EXECUTION_MODE_META, INTEGRATIONS_HARNESS_HINT, MODE_FALLBACK_ICON } fr
  * The harness → execution-mode cascade, data-driven from `settings.harnesses`
  * (not hardcoded to cloud/local). First a harness select, then that harness's
  * modes as button chips — a disabled chip means the mode isn't connected yet.
- * Both saves write `default_harness` + `default_execution_mode` together.
+ * Both saves write `defaultHarness` + `defaultExecutionMode` together.
  */
 export const ModeCascade = ({ harnesses, selectedKey, savedMode, saving, onSaveHarness, onSaveMode }: {
   harnesses: Harness[];

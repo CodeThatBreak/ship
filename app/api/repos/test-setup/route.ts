@@ -24,11 +24,11 @@ export const POST = async (req: Request) => {
   }
 
   const overrides: RepoDepOverrides = {
-    install_command: body.installCommand,
-    skip_install: Boolean(body.skipInstall),
-    setup_command: body.setupCommand,
-    sync_paths: body.syncPaths,
-    shared_dirs: body.sharedDirs,
+    installCommand: body.installCommand,
+    skipInstall: Boolean(body.skipInstall),
+    setupCommand: body.setupCommand,
+    syncPaths: body.syncPaths,
+    sharedDirs: body.sharedDirs,
   };
   const base = body.defaultBranch ?? undefined;
   const hubPath = body.localPath;

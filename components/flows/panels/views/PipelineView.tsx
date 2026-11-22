@@ -18,7 +18,7 @@ import { PipelineStatusBody } from "../artifacts/components/PipelineStatusBody";
 export default function PipelineView() {
   const { flow, node, action, model } = useNodePanel();
   const output = node.output as { pipelineId?: number; status?: string; fixes?: number } | undefined;
-  const hasMr = Boolean(flow.mr_url) || (flow.branches ?? []).some((b: BranchRow) => b.mr_url);
+  const hasMr = Boolean(flow.mrUrl) || (flow.branches ?? []).some((b: BranchRow) => b.mrUrl);
   const running = node.status === FLOW_STATUS.RUNNING;
 
   const footer = !running && hasMr ? (
@@ -30,7 +30,7 @@ export default function PipelineView() {
       </span>
       <div className="flex-1" />
       {node.status === FLOW_STATUS.FAILED && output?.pipelineId != null && (
-        <Button variant="outline" onClick={() => action(FLOW_ACTION.RETRIGGER_PIPELINE, { nodeKey: node.node_key })}>
+        <Button variant="outline" onClick={() => action(FLOW_ACTION.RETRIGGER_PIPELINE, { nodeKey: node.nodeKey })}>
           Retrigger pipeline
         </Button>
       )}

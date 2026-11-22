@@ -8,14 +8,14 @@ const node = (key: string): EditorNode => ({
   label: key,
   overrideLabel: null,
   trigger: { type: "auto" },
-  join_mode: "all",
+  joinMode: "all",
   config: {},
-  input_map: {},
+  inputMap: {},
   kind: "agent",
   icon: "bot",
-  catalog_name: key,
+  catalogName: key,
   catalogKey: null,
-  is_builtin: false,
+  isBuiltin: false,
 });
 
 describe("uniqueKey", () => {

@@ -75,17 +75,17 @@ export const loadSettings = async (): Promise<Settings> => {
   );
   const statuses = new Map(ports.map((p, i) => [p.kind, stateList[i]]));
   return {
-    default_harness: await db.getSetting(SETTINGS_KEYS.DEFAULT_HARNESS, settingString, "cursor"),
+    defaultHarness: await db.getSetting(SETTINGS_KEYS.DEFAULT_HARNESS, settingString, "cursor"),
     harnesses: harnessGroups(statuses),
-    default_execution_mode: await settingsService.defaultExecutionMode(),
-    default_model: await settingsService.defaultModel(),
-    local_agent: {
+    defaultExecutionMode: await settingsService.defaultExecutionMode(),
+    defaultModel: await settingsService.defaultModel(),
+    localAgent: {
       force: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
       sandbox: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
-      timeout_ms: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
+      timeoutMs: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
     },
     secrets: Object.keys(await db.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord, {})),
-    http_allowlist: await settingsService.httpAllowlist(),
+    httpAllowlist: await settingsService.httpAllowlist(),
     status: {
       cursorApiKeySet: await cursorCredentials.isStored(),
       localAgentConfigured:

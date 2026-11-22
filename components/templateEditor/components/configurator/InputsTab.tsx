@@ -2,7 +2,7 @@
 /**
  * The Inputs tab (Phase 4): what this node receives. The engine merges every
  * `next`-edge parent's published output (last wins) into the node's input and
- * overlays the template's `input_map[field] = "<JSONata>"` mappings on top
+ * overlays the template's `inputMap[field] = "<JSONata>"` mappings on top
  * (`evalInputMap`) — this tab makes both visible and editable:
  *
  *   summary    ← Review · output.summary            inherited        [re-map]
@@ -11,9 +11,9 @@
  *   + Map a field
  *
  * Inherited rows are greyed and not deletable — re-mapping one creates an
- * `input_map` override that shadows it (removing the override falls back to
+ * `inputMap` override that shadows it (removing the override falls back to
  * the inherited value). Mapped rows write straight into the node's existing
- * `input_map` config, which the engine already evaluates over the flow
+ * `inputMap` config, which the engine already evaluates over the flow
  * context — zero runtime changes. The row list lives in `InputRow`/`EditRow`
  * and the edit state machine in `useInputMap`; this container composes them.
  */

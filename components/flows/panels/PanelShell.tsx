@@ -21,7 +21,7 @@ import { useNodePanel } from "./context";
 /** The panel header title: the node contract's panel title wins, then the
  *  template label override, the template's own display name, the instance key. */
 export function panelTitle(node: Node): string {
-  return node.capabilities?.panelTitle ?? node.label ?? node.template_name ?? node.node_key;
+  return node.capabilities?.panelTitle ?? node.label ?? node.templateName ?? node.nodeKey;
 }
 
 /** @deprecated prefer `statusVariantOf` from `@/constants/flow` — this stays
@@ -110,7 +110,7 @@ export function PanelShell({
             <Button
               size="sm"
               disabled={actionPending}
-              onClick={() => action(FLOW_ACTION.RETRY, { nodeKey: node.node_key })}
+              onClick={() => action(FLOW_ACTION.RETRY, { nodeKey: node.nodeKey })}
             >
               <RotateCcw size={13} /> Retry
             </Button>
@@ -127,7 +127,7 @@ export function PanelShell({
               variant="ghost"
               className="mt-1"
               disabled={actionPending}
-              onClick={() => action(FLOW_ACTION.CANCEL, { nodeKey: node.node_key })}
+              onClick={() => action(FLOW_ACTION.CANCEL, { nodeKey: node.nodeKey })}
             >
               <Square size={12} /> Stop agent
             </Button>
@@ -158,7 +158,7 @@ export function PanelShell({
  * buried in run logs.
  */
 function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
-  const hook = (flow?.hooks ?? []).find((h) => h.node_key === node.node_key);
+  const hook = (flow?.hooks ?? []).find((h) => h.nodeKey === node.nodeKey);
   const hookPath = hook ? `/api/hooks/${hook.id}` : null;
 
   const loadSecret = async (): Promise<string | null> => {

@@ -235,7 +235,7 @@ export async function importTemplateYaml(
       name?: string; description?: string | null; trigger?: Record<string, unknown>;
       nodes: {
         key: string; nodeTemplateId: string; label?: string | null; trigger?: Record<string, unknown>;
-        join_mode?: string; config?: Record<string, unknown>; input_map?: Record<string, unknown>;
+        joinMode?: string; config?: Record<string, unknown>; inputMap?: Record<string, unknown>;
       }[];
       edges: { from: string; to: string; kind?: "next" | "loop"; label?: string | null; condition?: string | null }[];
     }, opts?: { isBuiltin?: boolean; id?: string; skipLint?: boolean }, tx?: Prisma.TransactionClient): Promise<string>;
@@ -257,7 +257,7 @@ async function importTemplateYamlInner(
   const parsed = parseTemplateYaml(text);
   const nodes: {
     key: string; nodeTemplateId: string; label?: string | null; trigger?: Record<string, unknown>;
-    join_mode?: string; config?: Record<string, unknown>; input_map?: Record<string, unknown>;
+    joinMode?: string; config?: Record<string, unknown>; inputMap?: Record<string, unknown>;
   }[] = [];
   for (const entry of parsed.nodes) {
     let nodeTemplateId: string;
@@ -298,9 +298,9 @@ async function importTemplateYamlInner(
       nodeTemplateId,
       label: entry.label ?? null,
       trigger: entry.trigger,
-      join_mode: entry.join_mode,
+      joinMode: entry.join_mode,
       config: overrides,
-      input_map: entry.input_map,
+      inputMap: entry.input_map,
     });
   }
 

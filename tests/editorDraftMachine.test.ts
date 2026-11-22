@@ -13,7 +13,7 @@ const baseDraft = (): Draft =>
       name: "Test",
       description: null,
       version: 1,
-      is_builtin: false,
+      isBuiltin: false,
       trigger: { type: "manual" },
     },
     pendingDefs: {},

@@ -490,8 +490,8 @@ export class WorktreeSetup {
         worktreePath: dir,
         policy,
         syncGlobs: depPolicies.resolveSyncGlobs(overrides),
-        sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
-        setupCommand: overrides.setup_command ?? null,
+        sharedDirs: depPolicies.parsePathList(overrides.sharedDirs),
+        setupCommand: overrides.setupCommand ?? null,
         onEvent: emit,
       });
       actions.push(...setup.actions);

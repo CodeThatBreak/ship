@@ -33,9 +33,9 @@ export const CURSOR_HARNESS = {
 } as const;
 
 /** PATCH key + field names for the harness's local-run execution settings
- *  (mirror of the settings API contract: partial { local_agent: {...} }). */
+ *  (mirror of the settings API contract: partial { localAgent: {...} }). */
 export const LOCAL_AGENT = {
-  KEY: "local_agent",
+  KEY: "localAgent",
   FIELD: {
     FORCE: "force",
     SANDBOX: "sandbox",

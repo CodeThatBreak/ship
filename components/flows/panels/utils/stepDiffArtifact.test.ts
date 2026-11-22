@@ -4,7 +4,7 @@ import type { Node, PlanStepRow } from "@/types/flow";
 
 const stepOf = (overrides: Partial<PlanStepRow> = {}): PlanStepRow => ({
   id: "ps_1",
-  flow_id: "flw_parent",
+  flowId: "flw_parent",
   position: 0,
   title: "Step one",
   files: [],
@@ -15,7 +15,7 @@ const stepOf = (overrides: Partial<PlanStepRow> = {}): PlanStepRow => ({
 
 const nodeOf = (overrides: Partial<Node> = {}): Node => ({
   id: "node_1",
-  node_key: "build",
+  nodeKey: "build",
   type: "build",
   status: "done",
   artifacts: [],
@@ -27,7 +27,7 @@ describe("stepDiffArtifactId", () => {
     const node = nodeOf({
       output: { steps: [{ id: "OVH-1", status: "done", diff_artifact: "art_step_diff" }] },
     });
-    expect(stepDiffArtifactId(node, stepOf({ meta_id: "OVH-1" }))).toBe("art_step_diff");
+    expect(stepDiffArtifactId(node, stepOf({ metaId: "OVH-1" }))).toBe("art_step_diff");
   });
 
   it("matches on the plan step's id when no meta id exists", () => {
@@ -41,19 +41,19 @@ describe("stepDiffArtifactId", () => {
     const node = nodeOf({
       output: { steps: [{ id: "OVH-1", status: "failed" }] },
     });
-    expect(stepDiffArtifactId(node, stepOf({ meta_id: "OVH-1" }))).toBeNull();
+    expect(stepDiffArtifactId(node, stepOf({ metaId: "OVH-1" }))).toBeNull();
   });
 
   it("returns null without an aggregate output or for an unaggregated step", () => {
-    expect(stepDiffArtifactId(nodeOf(), stepOf({ meta_id: "OVH-1" }))).toBeNull();
+    expect(stepDiffArtifactId(nodeOf(), stepOf({ metaId: "OVH-1" }))).toBeNull();
     const node = nodeOf({ output: { steps: [{ id: "OVH-2", diff_artifact: "art_x" }] } });
-    expect(stepDiffArtifactId(node, stepOf({ meta_id: "OVH-1" }))).toBeNull();
+    expect(stepDiffArtifactId(node, stepOf({ metaId: "OVH-1" }))).toBeNull();
   });
 
   it("ignores malformed aggregate entries", () => {
     const node = nodeOf({
       output: { steps: ["not-an-object", { diff_artifact: "art_no_id" }, { id: "OVH-1", diff_artifact: 42 }] },
     });
-    expect(stepDiffArtifactId(node, stepOf({ meta_id: "OVH-1" }))).toBeNull();
+    expect(stepDiffArtifactId(node, stepOf({ metaId: "OVH-1" }))).toBeNull();
   });
 });

@@ -79,7 +79,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   const machine = useTemplateDraft(boot?.draft ?? null, { onHistoryJump });
   const layout = useNodePositions(
     templateId,
-    Boolean(machine.draft?.template.is_builtin),
+    Boolean(machine.draft?.template.isBuiltin),
     boot && detailQuery.data ? positionsOf(detailQuery.data) : null,
   );
   const validation = useTemplateValidation(machine.draft);
@@ -192,7 +192,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   }
 
   const draft: Draft = machine.draft;
-  const readonly = Boolean(draft.template.is_builtin);
+  const readonly = Boolean(draft.template.isBuiltin);
   const providers = providersQuery.data ?? [];
   const repos = reposQuery.data ?? [];
   const providersError = providersQuery.isError

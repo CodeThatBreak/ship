@@ -69,16 +69,16 @@ export const useEditorGraphMutations = ({
       if (!cur) return;
       const src = cur.nodes.find((n) => n.key === key);
       if (!src) return;
-      if (src.nodeTemplateId === START_NODE_TEMPLATE_ID || src.is_builtin) {
+      if (src.nodeTemplateId === START_NODE_TEMPLATE_ID || src.isBuiltin) {
         setNotice(
-          src.is_builtin
+          src.isBuiltin
             ? "Built-in nodes can't be duplicated — add at most one from the palette."
             : "Only one Start node is allowed — this template already has one.",
         );
         return;
       }
       const newKey = uniqueKey(
-        `${src.overrideLabel || src.catalog_name || src.key} copy`,
+        `${src.overrideLabel || src.catalogName || src.key} copy`,
         cur.nodes,
       );
       const pos = positions[key] ?? { x: 0, y: 0 };
@@ -103,7 +103,7 @@ export const useEditorGraphMutations = ({
 
   const tidyLayout = useCallback(() => {
     const cur = draftRef.current;
-    if (!cur || cur.template.is_builtin) return;
+    if (!cur || cur.template.isBuiltin) return;
     setPositions((p) => ({ ...p, ...dagreLayout(cur.nodes, cur.edges) }));
     scheduleSave();
   }, [draftRef, setPositions, scheduleSave]);

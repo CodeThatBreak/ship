@@ -57,7 +57,7 @@ export default function FlowCockpit({
   const runningNodeKeys = useMemo(() => runningNodeKeysOf(flow.nodes), [flow.nodes]);
 
   const node = useMemo(
-    () => flow.nodes.find((n: Node) => n.node_key === resolvedSelectedKey) ?? flow.nodes[0],
+    () => flow.nodes.find((n: Node) => n.nodeKey === resolvedSelectedKey) ?? flow.nodes[0],
     [flow.nodes, resolvedSelectedKey]
   );
 
@@ -112,7 +112,7 @@ export default function FlowCockpit({
         <WorkflowGraph
           flowId={flow.id}
           nodes={flow.nodes}
-          selected={node?.node_key ?? ''}
+          selected={node?.nodeKey ?? ''}
           onSelect={setSelected}
           runningKeys={runningNodeKeys}
           fanout={fanout}
@@ -123,7 +123,7 @@ export default function FlowCockpit({
       <section className="flex-1 flex flex-col min-h-0">
         {node && (
           <NodePanel
-            key={node.node_key}
+            key={node.nodeKey}
             flow={flow}
             node={node}
             action={action}

@@ -12,7 +12,7 @@ import type { LocalAgentField } from "../types";
 export const useLocalAgentOptions = (onError: (message: string | null) => void) => {
   const { settings } = useSettingsQuery();
   const patch = usePatchSettings();
-  const options = settings?.local_agent ?? null;
+  const options = settings?.localAgent ?? null;
 
   const savingField = useMemo((): LocalAgentField | null => {
     if (!patch.isPending || !patch.variables) return null;

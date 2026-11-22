@@ -2,7 +2,7 @@
  * Task 26 — the declarative `subflow` kind on the StageGateRegistry (finding
  * B4): a subflow node expands exactly ONE child flow through the existing
  * `createStepChild` path with a start-contract-validated payload from the
- * node's `input_map`; the child's terminal output publishes as the parent's
+ * node's `inputMap`; the child's terminal output publishes as the parent's
  * aggregate (or the declared `pass` mapping); a child whose start contract
  * fails fails the parent loudly without creating the child.
  *
@@ -61,7 +61,7 @@ const eventMessagesOf = async (flowId: string): Promise<string[]> => {
   return rows.map((r) => r.message);
 };
 
-/** The parent template: fixture source → subflow node (config + input_map per test). */
+/** The parent template: fixture source → subflow node (config + inputMap per test). */
 const seedParentTemplate = async (index: number, childTplId: string, opts: { config?: Record<string, unknown>; inputMap?: Record<string, string> } = {}): Promise<string> => {
   return templateStore.create({
     name: `subflow parent ${index}`,
@@ -73,7 +73,7 @@ const seedParentTemplate = async (index: number, childTplId: string, opts: { con
         nodeTemplateId: "nt_subflow",
         trigger: { type: "auto" },
         config: { child: childTplId, parallel_max: 1, ...opts.config },
-        input_map: opts.inputMap,
+        inputMap: opts.inputMap,
       },
     ],
     edges: [{ from: "split_source_fixture", to: NODE_KEYS.SUBFLOW, kind: "next" }],
@@ -95,7 +95,7 @@ describe("subflow stage gate (task 26 — the delegated child)", () => {
       kind: "agent",
       config: { mode: "plan", output: "markdown", prompt: "delegate {{input.service}}" },
     });
-    // the child template declares a start contract the input_map must satisfy
+    // the child template declares a start contract the inputMap must satisfy
     const childTpl = await templateStore.create({
       name: "subflow child contract 901",
       trigger: { type: "manual", task_type: "jira" },
@@ -122,7 +122,7 @@ describe("subflow stage gate (task 26 — the delegated child)", () => {
     // SubflowNode run fails loudly, and the node is done)
     expect(await childFlowsOf(flowId)).toHaveLength(1);
     // the validated payload reached the child: the start contract's field
-    // rode the input_map evaluation into the child worker's recorded prompt
+    // rode the inputMap evaluation into the child worker's recorded prompt
     const childId = (await childFlowsOf(flowId))[0];
     const worker = await testGet<{ input: unknown }>(
       `SELECT input FROM nodes WHERE flow_id=$1 AND node_key='child_worker'`, childId
@@ -188,7 +188,7 @@ describe("subflow stage gate (task 26 — the delegated child)", () => {
       ],
       edges: [{ from: NODE_KEYS.START, to: "child_worker", kind: "next" }],
     }, { skipLint: true });
-    // the input_map maps NOTHING — the required contract field is missing
+    // the inputMap maps NOTHING — the required contract field is missing
     const tplId = await seedParentTemplate(903, childTpl, {});
     await seedTask("task_sub_903", "SUB-903");
     const flowId = await flowEngine.create("task_sub_903", "https://git.example.com/o/r", "subflow contract fail", { templateId: tplId });

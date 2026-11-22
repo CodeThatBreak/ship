@@ -85,20 +85,20 @@ export function detailToDraft(
         saved[n.key] = { x: n.x, y: n.y };
       return {
         key: n.key,
-        nodeTemplateId: n.node_template_id,
+        nodeTemplateId: n.nodeTemplateId,
         label: n.label ?? n.key,
         overrideLabel:
-          n.label && n.label !== n.catalog_name ? n.label : null,
+          n.label && n.label !== n.catalogName ? n.label : null,
         trigger: mapTrigger(n.trigger),
-        join_mode: n.join_mode ?? "all",
+        joinMode: n.joinMode ?? "all",
         config: n.config ?? {},
-        input_map: n.input_map ?? {},
+        inputMap: n.inputMap ?? {},
         kind: n.kind ?? null,
         icon: n.icon ?? null,
-        catalog_name: n.catalog_name ?? null,
-        catalogKey: n.catalog_key ?? null,
-        is_builtin: Boolean(n.is_builtin),
-        isLocal: Boolean(n.is_local),
+        catalogName: n.catalogName ?? null,
+        catalogKey: n.catalogKey ?? null,
+        isBuiltin: Boolean(n.isBuiltin),
+        isLocal: Boolean(n.isLocal),
       };
     }),
     edges: data.edges.map((e) => ({

@@ -18,12 +18,12 @@ export interface NodeCatalogEntry {
   name: string;
   kind: string;
   version: number;
-  is_builtin: boolean;
+  isBuiltin: boolean;
   description: string | null;
   icon: string | null;
   /** owning template — set = template-local (the palette's "This template") */
-  template_id?: string | null;
-  is_local?: boolean;
+  templateId?: string | null;
+  isLocal?: boolean;
 }
 
 type NodeCatalogPayload = {

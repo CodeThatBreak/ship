@@ -54,8 +54,8 @@ export class WorktreeDepSetup {
         worktreePath: target.dir,
         policy,
         syncGlobs: depPolicies.resolveSyncGlobs(overrides),
-        sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
-        setupCommand: overrides.setup_command ?? null,
+        sharedDirs: depPolicies.parsePathList(overrides.sharedDirs),
+        setupCommand: overrides.setupCommand ?? null,
         onEvent: async (message) => {
           await db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
             await this.activity.lifecycleData(ctx.flow.id, target.nodeId));
@@ -81,11 +81,11 @@ export class WorktreeDepSetup {
   depOverrides(repo: Repo | null | undefined): RepoDepOverrides {
     if (!repo) return {};
     return {
-      install_command: repo.installCommand,
-      skip_install: Boolean(repo.skipInstall),
-      setup_command: repo.setupCommand,
-      sync_paths: repo.syncPaths,
-      shared_dirs: repo.sharedDirs,
+      installCommand: repo.installCommand,
+      skipInstall: Boolean(repo.skipInstall),
+      setupCommand: repo.setupCommand,
+      syncPaths: repo.syncPaths,
+      sharedDirs: repo.sharedDirs,
     };
   }
 }

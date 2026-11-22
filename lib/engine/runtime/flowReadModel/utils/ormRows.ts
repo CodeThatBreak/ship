@@ -48,7 +48,7 @@ export const toFlowArtifact = (art: ArtifactRow): Artifact => ({
   kind: art.kind,
   version: art.version,
   status: art.status,
-  created_at: art.createdAt,
+  createdAt: art.createdAt,
   feedback: art.feedback ?? undefined,
   meta: art.meta ?? undefined,
 });

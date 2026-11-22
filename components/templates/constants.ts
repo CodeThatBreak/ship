@@ -24,9 +24,9 @@ export const KIND_ICONS: Record<NodeTemplateKind, LucideIcon> = {
  *  template-local rows belong to one template's builder. */
 export type NodeScope = "built-in" | "library" | "template-local";
 
-export function scopeOf(n: Pick<NodeRow, "is_builtin" | "is_local">): NodeScope {
-  if (n.is_builtin) return "built-in";
-  return n.is_local ? "template-local" : "library";
+export function scopeOf(n: Pick<NodeRow, "isBuiltin" | "isLocal">): NodeScope {
+  if (n.isBuiltin) return "built-in";
+  return n.isLocal ? "template-local" : "library";
 }
 
 /** "3 nodes" / "1 node" — shared by the gallery's Nodes column. */

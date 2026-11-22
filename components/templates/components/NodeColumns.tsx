@@ -64,19 +64,19 @@ export const nodeColumns: ColumnDef<NodeRow>[] = [
     ),
   },
   {
-    accessorKey: "updated_at",
+    accessorKey: "updatedAt",
     header: "Updated",
     cell: ({ row }) => (
       <span className="text-[12px] text-muted-foreground">
-        {fmtDate(row.original.updated_at) || "—"}
+        {fmtDate(row.original.updatedAt) || "—"}
       </span>
     ),
     // default view: built-ins pinned first, newest within each group
     sortingFn: (a, b) => {
-      const rank = (n: NodeRow) => (n.is_builtin ? 0 : 1);
+      const rank = (n: NodeRow) => (n.isBuiltin ? 0 : 1);
       if (rank(a.original) !== rank(b.original))
         return rank(a.original) - rank(b.original);
-      return b.original.updated_at.localeCompare(a.original.updated_at);
+      return b.original.updatedAt.localeCompare(a.original.updatedAt);
     },
   },
 ];

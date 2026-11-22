@@ -36,11 +36,11 @@ export function WorkflowNodeCard({
 }) {
   // the node row's own label (template snapshot) wins; the graph meta
   // derives from the same template, so this only matters for fallbacks
-  const label = node.label ?? meta[node.node_key]?.label ?? node.node_key;
-  const Icon = iconFor(node.node_key, meta);
+  const label = node.label ?? meta[node.nodeKey]?.label ?? node.nodeKey;
+  const Icon = iconFor(node.nodeKey, meta);
   // the variables this node publishes downstream — what the next node's
   // pickers offer (start nodes: their contract; agents: their schema)
-  const outputs = meta[node.node_key]?.outputs ?? [];
+  const outputs = meta[node.nodeKey]?.outputs ?? [];
   const isRunning = running || node.status === FLOW_STATUS.RUNNING;
   const st = STATUS[isRunning ? FLOW_STATUS.RUNNING : node.status] ?? STATUS.pending;
   // aggregate child states override the card colors while the fan-out
@@ -57,7 +57,7 @@ export function WorkflowNodeCard({
       type="button"
       aria-pressed={selected}
       aria-label={`Select node ${label}`}
-      onClick={() => onSelect(node.node_key)}
+      onClick={() => onSelect(node.nodeKey)}
       title={outputs.length ? `Publishes: ${outputs.join(", ")}` : undefined}
       className={cn(
         "absolute rounded-lg cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150 text-left",

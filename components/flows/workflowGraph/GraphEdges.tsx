@@ -39,7 +39,7 @@ export function GraphEdges({
   width: number;
   height: number;
 }) {
-  const byKey = new Map(nodes.map((n) => [n.node_key, n]));
+  const byKey = new Map(nodes.map((n) => [n.nodeKey, n]));
   /** keys are `${from}>${to}:${label}` — decided decisions highlight their edge */
   const takenEdges = new Set<string>();
   for (const e of edgeSpecs ?? []) {

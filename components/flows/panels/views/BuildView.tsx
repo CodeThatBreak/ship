@@ -40,13 +40,13 @@ export default function BuildView() {
   const branches = flow.branches ?? [];
   const hasBranches = branches.length > 1;
   const planSteps = flow.planSteps ?? [];
-  const fannedOut = planSteps.some((s: PlanStepRow) => s.sub_flow != null);
+  const fannedOut = planSteps.some((s: PlanStepRow) => s.subFlow != null);
 
-  const creatingMr = node.status === FLOW_STATUS.APPROVED && !hasBranches && !flow.mr_url;
+  const creatingMr = node.status === FLOW_STATUS.APPROVED && !hasBranches && !flow.mrUrl;
   const creatingMrBranches = new Set(
     hasBranches
       ? branches
-          .filter((b: BranchRow) => (b.status === FLOW_STATUS.APPROVED || b.status === FLOW_STATUS.DONE) && !b.mr_url)
+          .filter((b: BranchRow) => (b.status === FLOW_STATUS.APPROVED || b.status === FLOW_STATUS.DONE) && !b.mrUrl)
           .map((b: BranchRow) => b.name)
       : []
   );
@@ -83,7 +83,7 @@ export default function BuildView() {
               : 'Review the diff, then create the merge request.'))
           : creatingMr || creatingMrBranches.size > 0
             ? 'Creating the merge request — the pipeline stage starts once the MR exists.'
-            : flow.mr_url || hasBranches
+            : flow.mrUrl || hasBranches
               ? 'Merge request created.'
               : 'The diff appears here once the build finishes.'}
       </span>
@@ -144,8 +144,8 @@ export default function BuildView() {
                   name={b.name}
                   title={b.title}
                   status={b.status}
-                  mrUrl={b.mr_url}
-                  mrIid={b.mr_iid}
+                  mrUrl={b.mrUrl}
+                  mrIid={b.mrIid}
                   detail={err ? <div className="text-destructive text-xs mt-1">{err}</div> : null}
                   trailing={
                     <>
@@ -167,12 +167,12 @@ export default function BuildView() {
           </div>
         </div>
       )}
-      {!hasBranches && flow.mr_url && (
+      {!hasBranches && flow.mrUrl && (
         <p className="text-[13px]">
-          <a href={flow.mr_url} target="_blank" className="text-info hover:underline">
-            Open MR !{flow.mr_iid} ↗
+          <a href={flow.mrUrl} target="_blank" className="text-info hover:underline">
+            Open MR !{flow.mrIid} ↗
           </a>{' '}
-          on branch <code className="font-mono">{flow.mr_branch}</code>
+          on branch <code className="font-mono">{flow.mrBranch}</code>
         </p>
       )}
       {(latest || (!canApprove && node.status !== FLOW_STATUS.RUNNING)) && (

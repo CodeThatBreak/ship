@@ -21,7 +21,7 @@ export const contractWithInput = (
 export const useNodeContract = (
   node: Pick<
     EditorNode,
-    "nodeTemplateId" | "kind" | "catalog_name" | "config"
+    "nodeTemplateId" | "kind" | "catalogName" | "config"
   > | null,
 ) => {
   const request = useDeferredNodeContractRequest(node);

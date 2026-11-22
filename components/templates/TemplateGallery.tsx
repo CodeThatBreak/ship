@@ -47,7 +47,7 @@ function getTemplateActions(
     onPickDelete: () => void;
   },
 ): DataTableAction<TemplateRow>[] {
-  const builtin = Boolean(t.is_builtin);
+  const builtin = Boolean(t.isBuiltin);
   return [
     { label: builtin ? "Preview" : "Open", onSelect: ctx.onOpen },
     {
@@ -193,7 +193,7 @@ export function TemplateGallery() {
           searchable
           searchPlaceholder="Search templates…"
           pageSize={25}
-          initialSorting={[{ id: "updated_at", desc: false }]}
+          initialSorting={[{ id: "updatedAt", desc: false }]}
           emptyMessage="No templates yet — duplicate a starter or create one."
         />
       </ListSection>

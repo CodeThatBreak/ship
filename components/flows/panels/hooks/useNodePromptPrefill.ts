@@ -46,7 +46,7 @@ export function useNodePromptPrefill(): {
   const promptKey: string | null = node.capabilities?.promptNode ?? null;
   const firstRun = promptKey != null && isNodeFirstRun(node);
 
-  const promptQuery = useNodePrompt(flow.id, promptKey ?? node.node_key, {
+  const promptQuery = useNodePrompt(flow.id, promptKey ?? node.nodeKey, {
     // only a first-run prefill reads the prompt; refine turns define their own body
     enabled: promptKey != null && firstRun,
   });

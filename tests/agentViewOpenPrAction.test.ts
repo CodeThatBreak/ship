@@ -18,7 +18,7 @@ import type { Artifact, BranchRow, FlowData, Node } from "@/types/flow";
 
 const branchRow: BranchRow = {
   id: "branch-1",
-  flow_id: "flow-1",
+  flowId: "flow-1",
   name: "bugfix/a11y-6988-00wghu",
   title: "A11Y-6988",
   status: "building",
@@ -27,7 +27,7 @@ const branchRow: BranchRow = {
 
 const node: Node = {
   id: "node-1",
-  node_key: "agent_node",
+  nodeKey: "agent_node",
   type: "nt_agent",
   kind: "agent",
   status: FLOW_STATUS.DONE,
@@ -89,7 +89,7 @@ describe("agent node panel — output version labels", () => {
     kind: "markdown",
     version,
     status: "done",
-    created_at: `2026-01-0${version}T00:00:00.000Z`,
+    createdAt: `2026-01-0${version}T00:00:00.000Z`,
   }));
 
   it("labels output versions as runs, not v1/v2", () => {
@@ -117,14 +117,14 @@ describe("agent node panel — Open PR affordance", () => {
 
   it("says Push changes once the branch has an MR", () => {
     const html = renderPanel(
-      contextFor({}, { branches: [{ ...branchRow, mr_url: "https://gitlab.example/mr/7", mr_iid: 7 }] }),
+      contextFor({}, { branches: [{ ...branchRow, mrUrl: "https://gitlab.example/mr/7", mrIid: 7 }] }),
     );
     expect(html).toContain("Push changes");
     expect(html).not.toContain("Open PR");
   });
 
   it("says Push changes when the flow already has an MR", () => {
-    const html = renderPanel(contextFor({}, { mr_url: "https://gitlab.example/mr/9", mr_iid: 9 }));
+    const html = renderPanel(contextFor({}, { mrUrl: "https://gitlab.example/mr/9", mrIid: 9 }));
     expect(html).toContain("Push changes");
     expect(html).not.toContain("Open PR");
   });

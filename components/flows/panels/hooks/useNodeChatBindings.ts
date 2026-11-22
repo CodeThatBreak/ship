@@ -18,7 +18,7 @@ export function useNodeChatBindings(): {
 
   // node id → node key, for the chat feed's run-section grouping
   const nodeKeysByNodeId = useMemo(
-    () => new Map(flow.nodes.map((n) => [n.id, n.node_key])),
+    () => new Map(flow.nodes.map((n) => [n.id, n.nodeKey])),
     [flow.nodes],
   );
   // node id → status; acts as the authority on whether a run is really

@@ -12,7 +12,7 @@ export function useUpdateCursorApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      await patchSettings({ cursor_api_key: apiKey });
+      await patchSettings({ cursorApiKey: apiKey });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
   });

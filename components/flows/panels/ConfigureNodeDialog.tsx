@@ -46,7 +46,7 @@ export const ConfigureNodeDialog = ({
     }
     setDraftError(null);
     try {
-      await mutation.mutateAsync({ action: FLOW_ACTION.SET_NODE_CONFIG, nodeKey: node.node_key, config });
+      await mutation.mutateAsync({ action: FLOW_ACTION.SET_NODE_CONFIG, nodeKey: node.nodeKey, config });
       onClose();
     } catch {
       // the failure surfaces on `mutation.error` below, next to the draft

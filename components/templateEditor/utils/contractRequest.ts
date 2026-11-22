@@ -71,11 +71,11 @@ export const contractConfigSignature = (
 const identityKeyOf = (node: {
   nodeTemplateId: string;
   kind: string | null;
-  catalog_name?: string | null;
+  catalogName?: string | null;
 }): string => {
   if (isDraftNodeTemplateId(node.nodeTemplateId)) {
     const bits = [`kind:${node.kind ?? "agent"}`];
-    if (node.catalog_name) bits.push(`name:${node.catalog_name}`);
+    if (node.catalogName) bits.push(`name:${node.catalogName}`);
     return bits.join("|");
   }
   return `def:${node.nodeTemplateId}`;
@@ -85,7 +85,7 @@ export const nodeContractRequest = (
   node: {
     nodeTemplateId: string;
     kind: string | null;
-    catalog_name?: string | null;
+    catalogName?: string | null;
     config?: Record<string, unknown> | null;
   },
   configOverride?: Record<string, unknown> | null,
@@ -99,7 +99,7 @@ export const nodeContractRequest = (
   const body: NodeContractRequestBody = {};
   if (isDraftNodeTemplateId(node.nodeTemplateId)) {
     body.kind = node.kind ?? "agent";
-    if (node.catalog_name) body.name = node.catalog_name;
+    if (node.catalogName) body.name = node.catalogName;
   } else {
     body.def = node.nodeTemplateId;
   }

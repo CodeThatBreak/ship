@@ -27,7 +27,7 @@ export default function AgentView() {
       node={node}
       flow={flow}
       hideCost
-      runningLabel={`${node.label || node.template_name || node.node_key} is running…`}
+      runningLabel={`${node.label || node.templateName || node.nodeKey} is running…`}
       footer={<AgentFooter node={node} action={action} model={model} />}
     >
       <AgentTabs flow={flow} node={node} action={action} model={model} />

@@ -21,7 +21,7 @@ export interface Draft {
     name: string;
     description: string | null;
     version: number;
-    is_builtin: boolean;
+    isBuiltin: boolean;
     trigger: Record<string, unknown>;
   };
   nodes: EditorNode[];
@@ -78,14 +78,14 @@ export function nextDraftName(kind: string, draft: Draft): string {
 }
 
 /**
- * The Save payload's `new_node_templates` (Phase 2): pending defs still
+ * The Save payload's `newNodeTemplates` (Phase 2): pending defs still
  * referenced by a draft node. The referencing instances' authored config is
  * folded into the def config (the persisted row then reflects what the drawer
  * authored, so the Library entry is reusable as-is). Defs whose nodes were
  * deleted/undone away are dropped — abandoned placements leave nothing behind.
  */
 export function collectPendingDefs(draft: Draft): {
-  draft_id: string;
+  draftId: string;
   kind: string;
   name: string;
   icon: string | null;
@@ -93,7 +93,7 @@ export function collectPendingDefs(draft: Draft): {
   config: Record<string, unknown>;
 }[] {
   const out: {
-    draft_id: string;
+    draftId: string;
     kind: string;
     name: string;
     icon: string | null;
@@ -106,7 +106,7 @@ export function collectPendingDefs(draft: Draft): {
     let config = def.config;
     for (const n of users) config = { ...config, ...n.config };
     out.push({
-      draft_id: def.draftId,
+      draftId: def.draftId,
       kind: def.kind,
       name: def.name,
       icon: def.icon,

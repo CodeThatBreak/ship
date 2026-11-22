@@ -9,19 +9,19 @@ assignTestDatabase();
 const { db } = await import("../db/app");
 
 describe("settingsPatchBodySchema", () => {
-  it("rejects invalid default_execution_mode in a multi-field patch (CR-048)", () => {
+  it("rejects invalid defaultExecutionMode in a multi-field patch (CR-048)", () => {
     const schema = settingsPatchBodySchema(["cursor"]);
     const result = schema.safeParse({
-      cursor_api_key: "secret-key",
-      default_harness: "cursor",
-      default_execution_mode: "bogus",
+      cursorApiKey: "secret-key",
+      defaultHarness: "cursor",
+      defaultExecutionMode: "bogus",
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects non-string http_allowlist entries", () => {
+  it("rejects non-string httpAllowlist entries", () => {
     const schema = settingsPatchBodySchema(["cursor"]);
-    const result = schema.safeParse({ http_allowlist: [{}] });
+    const result = schema.safeParse({ httpAllowlist: [{}] });
     expect(result.success).toBe(false);
   });
 });
@@ -46,8 +46,8 @@ describe("SettingsService.update", () => {
 
     await expect(
       service.update({
-        default_harness: "cursor",
-        default_execution_mode: "local",
+        defaultHarness: "cursor",
+        defaultExecutionMode: "local",
       }),
     ).rejects.toThrow("simulated failure");
     expect(await db.getSetting("default_harness", settingString, "")).toBe("initial");
@@ -57,8 +57,8 @@ describe("SettingsService.update", () => {
   it("applies a valid patch atomically", async () => {
     const service = new SettingsService(db);
     await service.update({
-      default_execution_mode: "local",
-      http_allowlist: ["Example.COM", ""],
+      defaultExecutionMode: "local",
+      httpAllowlist: ["Example.COM", ""],
     });
 
     expect(await db.getSetting("default_execution_mode", settingString, "")).toBe("local");

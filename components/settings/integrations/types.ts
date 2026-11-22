@@ -3,10 +3,10 @@ import type { Settings } from "@/types/settings";
 import { LOCAL_AGENT } from "./constants";
 
 /** Editable local-run execution settings shown on the harness card
- *  (shape of GET /api/settings → local_agent). */
-export type LocalAgentOptions = Settings["local_agent"];
+ *  (shape of GET /api/settings → localAgent). */
+export type LocalAgentOptions = Settings["localAgent"];
 
-/** PATCH field names that can be written through { local_agent: {...} }. */
+/** PATCH field names that can be written through { localAgent: {...} }. */
 export type LocalAgentField =
   (typeof LOCAL_AGENT.FIELD)[keyof typeof LOCAL_AGENT.FIELD];
 
