@@ -13,8 +13,15 @@
  * prompt only for the agent source, and the fan-out knobs only show when a
  * plan node is upstream (or an override already exists, so it stays clearable).
  */
+import { ChevronRight } from "lucide-react";
 import { Spinner } from '../../../../ui/spinner';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../../../../ui/collapsible';
 import { FANOUT_FIELD_KEYS, NODE_KIND } from "@/constants/nodeKind";
+import { isAdvancedConfigField } from "../../../configFieldLogic";
 import type { NodeContract } from '../../../types';
 import {
   ConfigFieldRow,
@@ -117,108 +124,139 @@ export function DeclarativeConfigFields({
   // the builder drawer's Config tab: prompt fields moved to the Prompt tab —
   // the create/configure dialog (no tabs) still renders them inline below
   const hidden = hideFields ?? new Set<string>();
+  // the existing gating chain, unchanged — apply every filter first, then
+  // partition the surviving fields into the flat core set and the agent's
+  // Advanced set (other kinds have no advanced keys, so they stay all-flat).
+  const visibleFields = fields
+    .filter(
+      (f) =>
+        !(f.key === "output_schema" && kind === "agent") ||
+        agentOutputJson ||
+        config.output_schema != null,
+    )
+    // the split block only matters for a json-output agent (units are
+    // schema-validated output items) — an override split stays visible so
+    // the author can clear it
+    .filter(
+      (f) =>
+        !(f.key === "split" && kind === "agent") ||
+        agentOutputJson ||
+        config.split != null,
+    )
+    .filter((f) => !(kind === "decision" && f.key === "expression"))
+    .filter(
+      (f) =>
+        !(kind === "decision" && f.key === "question") ||
+        decisionSource === "agent",
+    )
+    .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
+    .filter((f) => !hidden.has(f.key));
+  const coreFields = visibleFields.filter(
+    (f) => !isAdvancedConfigField(kind, f.key),
+  );
+  const advancedFields = visibleFields.filter((f) =>
+    isAdvancedConfigField(kind, f.key),
+  );
+
+  // one renderer for both groups — the bespoke editors and their wiring are
+  // identical whether a knob sits in the flat core list or under Advanced.
+  const renderField = (f: ContractField) => {
+    // the split block: a bespoke nested-object editor driven by the
+    // node's compiled output schema (the array-field picker + the
+    // per-item path checks) — a plain ConfigField can't express it
+    if (f.key === "split" && kind === "agent") {
+      return (
+        <SplitConfigFields
+          key={f.key}
+          field={f}
+          split={config[f.key]}
+          output={contract.output}
+          onSplitChange={(next) =>
+            onConfigChange(writeConfig(config, f.key, next))
+          }
+        />
+      );
+    }
+    // the effects block: a nested { afterApproval, afterSuccess } object
+    // with a closed checkbox vocabulary — no plain ConfigField row can
+    // express it (same dispatch pattern as the split block)
+    if (f.key === "effects") {
+      return (
+        <EffectsConfigFields
+          key={f.key}
+          field={f}
+          value={config[f.key]}
+          onChange={(next) =>
+            onConfigChange(writeConfig(config, f.key, next))
+          }
+        />
+      );
+    }
+    if (promptEditorKeys.has(f.key)) {
+      // the prompt surface: body + everything in one — declarative
+      // prompts have no locked blocks yet
+      return (
+        <PromptSectionField
+          key={f.key}
+          field={f}
+          value={config[f.key]}
+          varGroups={
+            f.key === "response_map"
+              ? httpResponseVarGroups()
+              : varGroups
+          }
+          invalidRefs={invalidRefs}
+          onBodyChange={(v, extra) =>
+            onConfigChange(writeConfig(config, f.key, v, extra))
+          }
+        />
+      );
+    }
+    return (
+    <ConfigFieldRow
+      key={f.key}
+      field={withSecretRefOptions(f, secretNames)}
+      value={config[f.key]}
+      defaultValue={defaults[f.key]}
+      companionText={companionTextOf(config, f.key, defaults[f.key])}
+      decisionSource={decisionSource}
+      secrets={isHttp && secretFields.has(f.key) ? secretNames ?? undefined : undefined}
+      varGroups={
+        f.key === "response_map"
+          ? httpResponseVarGroups()
+          : freeTextFields.has(f.key) || f.type === "choices" || f.type === "map"
+            ? varGroups
+            : undefined
+      }
+      invalidRefs={invalidRefs}
+      templateId={templateId}
+      onChange={(v, extra) =>
+        onConfigChange(writeConfig(config, f.key, v, extra))
+      }
+    />
+    );
+  };
+
   return (
     <div className="grid gap-3">
-      {fields
-        .filter(
-          (f) =>
-            !(f.key === "output_schema" && kind === "agent") ||
-            agentOutputJson ||
-            config.output_schema != null,
-        )
-        // the split block only matters for a json-output agent (units are
-        // schema-validated output items) — an override split stays visible so
-        // the author can clear it
-        .filter(
-          (f) =>
-            !(f.key === "split" && kind === "agent") ||
-            agentOutputJson ||
-            config.split != null,
-        )
-        .filter((f) => !(kind === "decision" && f.key === "expression"))
-        .filter(
-          (f) =>
-            !(kind === "decision" && f.key === "question") ||
-            decisionSource === "agent",
-        )
-        .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
-        .filter((f) => !hidden.has(f.key))
-        .map((f) => {
-          // the split block: a bespoke nested-object editor driven by the
-          // node's compiled output schema (the array-field picker + the
-          // per-item path checks) — a plain ConfigField can't express it
-          if (f.key === "split" && kind === "agent") {
-            return (
-              <SplitConfigFields
-                key={f.key}
-                field={f}
-                split={config[f.key]}
-                output={contract.output}
-                onSplitChange={(next) =>
-                  onConfigChange(writeConfig(config, f.key, next))
-                }
-              />
-            );
-          }
-          // the effects block: a nested { afterApproval, afterSuccess } object
-          // with a closed checkbox vocabulary — no plain ConfigField row can
-          // express it (same dispatch pattern as the split block)
-          if (f.key === "effects") {
-            return (
-              <EffectsConfigFields
-                key={f.key}
-                field={f}
-                value={config[f.key]}
-                onChange={(next) =>
-                  onConfigChange(writeConfig(config, f.key, next))
-                }
-              />
-            );
-          }
-          if (promptEditorKeys.has(f.key)) {
-            // the prompt surface: body + everything in one — declarative
-            // prompts have no locked blocks yet
-            return (
-              <PromptSectionField
-                key={f.key}
-                field={f}
-                value={config[f.key]}
-                varGroups={
-                  f.key === "response_map"
-                    ? httpResponseVarGroups()
-                    : varGroups
-                }
-                invalidRefs={invalidRefs}
-                onBodyChange={(v, extra) =>
-                  onConfigChange(writeConfig(config, f.key, v, extra))
-                }
-              />
-            );
-          }
-          return (
-          <ConfigFieldRow
-            key={f.key}
-            field={withSecretRefOptions(f, secretNames)}
-            value={config[f.key]}
-            defaultValue={defaults[f.key]}
-            companionText={companionTextOf(config, f.key, defaults[f.key])}
-            decisionSource={decisionSource}
-            secrets={isHttp && secretFields.has(f.key) ? secretNames ?? undefined : undefined}
-            varGroups={
-              f.key === "response_map"
-                ? httpResponseVarGroups()
-                : freeTextFields.has(f.key) || f.type === "choices" || f.type === "map"
-                  ? varGroups
-                  : undefined
+      {coreFields.map(renderField)}
+      {advancedFields.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger
+            render={
+              <button className="group flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] hover:text-foreground transition-colors" />
             }
-            invalidRefs={invalidRefs}
-            templateId={templateId}
-            onChange={(v, extra) =>
-              onConfigChange(writeConfig(config, f.key, v, extra))
-            }
-          />
-          );
-        })}
+          >
+            <ChevronRight className="size-3 transition-transform group-data-panel-open:rotate-90" />{" "}
+            Advanced — tools, fan-out &amp; output · {advancedFields.length}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="grid gap-3 pt-2">
+              {advancedFields.map(renderField)}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   );
 }

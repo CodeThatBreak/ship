@@ -15,6 +15,6 @@ export const EFFECTS_CONFIG_FIELD: ConfigField = {
   label: "Effects",
   type: "json",
   help:
-    "Side effects the engine runs automatically after this node's lifecycle — e.g. create_change_request opens an MR from the node's branch fact on approval. " +
-    "Automatic only: the panel's manual action is always available once the verb's fact exists, declared or not.",
+    "Checked: the engine opens a merge request from this node's branch fact when its output is approved. " +
+    "Unchecked: no automatic MR is opened — the panel's manual MR action is still available once the branch fact exists.",
 };

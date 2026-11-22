@@ -23,9 +23,9 @@ describe("effects config authoring vocabulary", () => {
       "@/lib/engine/runtime/effects/constants/effectVerbs"
     );
 
-    expect(EFFECT_LIFECYCLE_SECTIONS.map((s) => s.key).sort()).toEqual(
-      [EFFECT_LIFECYCLE.AFTER_APPROVAL, EFFECT_LIFECYCLE.AFTER_SUCCESS].sort(),
-    );
+    expect(EFFECT_LIFECYCLE_SECTIONS.map((s) => s.key)).toEqual([
+      EFFECT_LIFECYCLE.AFTER_APPROVAL,
+    ]);
 
     for (const section of EFFECT_LIFECYCLE_SECTIONS) {
       const engineKey =
@@ -49,7 +49,7 @@ describe("effects config authoring vocabulary", () => {
     );
   });
 
-  it("renders both lifecycle sections with their wired verb options", () => {
+  it("renders a plain-English after-approval checkbox with no sub text", () => {
     const html = renderToStaticMarkup(
       createElement(EffectsConfigFields, {
         field: { key: "effects", label: "Effects", type: "json" },
@@ -57,11 +57,13 @@ describe("effects config authoring vocabulary", () => {
         onChange: () => undefined,
       }),
     );
-    expect(html).toContain("Effects");
-    expect(html).toContain("After approval");
-    expect(html).toContain(EFFECT_VERB.CREATE_CHANGE_REQUEST);
-    expect(html).toContain("After success");
-    expect(html).toContain(EFFECT_VERB.RETRIGGER_PIPELINE);
+    expect(html).not.toContain("Effects");
+    expect(html).toContain("After Approval");
+    expect(html).toContain("Create Change Request");
+    expect(html).not.toContain(EFFECT_VERB.CREATE_CHANGE_REQUEST);
+    expect(html).not.toContain("After success");
+    expect(html).not.toContain(EFFECT_VERB.RETRIGGER_PIPELINE);
+    expect(html).not.toContain(EFFECT_VERB.PUBLISH_REVIEW_COMMENTS);
     // the unwired stub is deliberately not offered
     expect(html).not.toContain(EFFECT_VERB.PUBLISH_DIFF);
   });

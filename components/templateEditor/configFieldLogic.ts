@@ -4,6 +4,7 @@
  * bespoke editor, and the pure read/write helpers over the config object.
  * Pure module — the UI lives in `components/`, data hooks in `hooks/`.
  */
+import { NODE_KIND } from "@/constants/nodeKind";
 import {
   asJsonataGroups,
   conditionVarGroups,
@@ -61,6 +62,31 @@ export const secretRefOptions = (
   secretNames?.length
     ? secretNames.map((name) => ({ value: name, label: name }))
     : undefined;
+
+/** The agent-kind knobs that live behind the single "Advanced" collapsible on
+ *  the declarative Config tab. The core knobs (mode, prompt, model, base_ref,
+ *  effects, output and output_schema — the latter right under output once json
+ *  is selected) stay flat; everything the author reaches for less often —
+ *  tools/retries, secrets, MCP sources, fan-out and split — is grouped. Other
+ *  declarative kinds keep their flat form. */
+export const advancedConfigFieldKeys = new Set([
+  "retry_budget",
+  "agent_tools",
+  "secret_refs",
+  "mcp_sources",
+  "fanout_mode",
+  "fanout_child",
+  "fanout_parallel_max",
+  "split_consume",
+  "split_parallel_max",
+  "split",
+]);
+
+/** True only for the agent kind's advanced knobs — used to partition the
+ *  declarative Config form's fields into core (flat) and Advanced (collapsed). */
+export function isAdvancedConfigField(kind: string, key: string): boolean {
+  return kind === NODE_KIND.AGENT && advancedConfigFieldKeys.has(key);
+}
 
 /**
  * The node's vocabulary as the condition/expression editors' groups (Phase 5):
