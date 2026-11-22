@@ -4,9 +4,10 @@ import { Sparkles } from 'lucide-react';
 import { EmptyHint } from '@/components/shared/EmptyHint';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { FlowData, Node } from '@/types/flow';
-import { AGENT_VIEW_TAB, TABS_LIST_CLASS, TRIGGER_CLASS } from '../constants/agentViewConstants';
+import { AGENT_VIEW_TAB, TABS_LIST_CLASS } from '../constants/tabs';
 import type { AgentViewModel } from '../hooks/useAgentView';
 import { kindTabLabel } from '../utils/tabLabels';
+import { tabIcon } from '../utils/tabIcons';
 import FanoutStepList from '../../../FanoutStepList';
 import { GenericArtifact } from '../../../shared';
 import { rendererForKind } from '../../../artifacts/artifactRenderers';
@@ -26,9 +27,9 @@ export default function AgentTabs({
   action: (a: string, b?: ActionPayload) => void;
   model: AgentViewModel;
 }) {
-  const emptyOutput = model.showEmptyOutput ? (
-    <EmptyHint icon={Sparkles}>No output yet.</EmptyHint>
-  ) : null;
+  const emptyOutput = model.showEmptyOutput ? <EmptyHint icon={Sparkles}>No output yet.</EmptyHint> : null;
+  const OutputIcon = tabIcon(AGENT_VIEW_TAB.OUTPUT);
+  const StepsIcon = tabIcon(AGENT_VIEW_TAB.STEPS);
 
   if (!model.hasTabs) return emptyOutput;
 
@@ -36,15 +37,25 @@ export default function AgentTabs({
     <Tabs value={model.activeTab} onValueChange={model.onTabChange} className="gap-0">
       {model.tabValues.length > 1 && (
         <TabsList variant="line" aria-label="Agent views" className={TABS_LIST_CLASS}>
-          <TabsTrigger value={AGENT_VIEW_TAB.OUTPUT} className={TRIGGER_CLASS}>Output</TabsTrigger>
+          <TabsTrigger value={AGENT_VIEW_TAB.OUTPUT}>
+            <OutputIcon />
+            Output
+          </TabsTrigger>
           {model.fannedOut && (
-            <TabsTrigger value={AGENT_VIEW_TAB.STEPS} className={TRIGGER_CLASS}>Steps</TabsTrigger>
-          )}
-          {model.otherKinds.map(kind => (
-            <TabsTrigger key={kind} value={kind} className={TRIGGER_CLASS}>
-              {kindTabLabel(kind)}
+            <TabsTrigger value={AGENT_VIEW_TAB.STEPS}>
+              <StepsIcon />
+              Steps
             </TabsTrigger>
-          ))}
+          )}
+          {model.otherKinds.map(kind => {
+            const KindIcon = tabIcon(kind);
+            return (
+              <TabsTrigger key={kind} value={kind}>
+                <KindIcon />
+                {kindTabLabel(kind)}
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
       )}
       {/* plan fan-out: the per-step monitoring surface is one of the tabs */}
@@ -61,7 +72,9 @@ export default function AgentTabs({
             current={model.current}
             onSelectOutput={model.onSelectOutput}
           />
-        ) : emptyOutput}
+        ) : (
+          emptyOutput
+        )}
       </TabsContent>
       {model.otherKinds.map(kind => (
         <TabsContent key={kind} value={kind} className="pt-4">

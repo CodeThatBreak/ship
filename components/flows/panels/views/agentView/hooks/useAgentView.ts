@@ -5,7 +5,7 @@ import type { Artifact, FlowData, Node, PlanStepRow } from '@/types/flow';
 import { FLOW_STATUS, isFailedStatus } from '@/constants/flow';
 import { ARTIFACT_KIND } from '../../../artifacts/constants/artifactKinds';
 import { isPanelVerbEligible } from '../../../utils/panelVerbCapability';
-import { AGENT_VIEW_TAB } from '../constants/agentViewConstants';
+import { AGENT_VIEW_TAB } from '../constants/tabs';
 import { hasChangeRequest } from '../utils/changeRequest';
 import { footerHintFor } from '../utils/footerHint';
 

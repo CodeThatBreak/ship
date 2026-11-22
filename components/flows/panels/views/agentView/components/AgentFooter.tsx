@@ -4,7 +4,7 @@ import { CheckCheck, GitMerge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FLOW_ACTION } from '@/constants/flow';
 import type { Node } from '@/types/flow';
-import { CHANGE_REQUEST_ACTION_LABEL } from '../constants/agentViewConstants';
+import { CHANGE_REQUEST_ACTION_LABEL } from '../constants/changeRequest';
 import type { AgentViewModel } from '../hooks/useAgentView';
 import type { ActionPayload } from '../../../context';
 
