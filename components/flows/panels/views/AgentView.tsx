@@ -65,6 +65,9 @@ export default function AgentView() {
   // the AUTOMATIC after-approval dispatch, not this manual button.
   const branches = flow.branches ?? [];
   const openPrVisible = branches.length > 0 && isPanelVerbEligible(node.status);
+  // the same verb pushes the branch and adopts the existing MR when one is
+  // already recorded — only the affordance's label changes
+  const changeRequestExists = Boolean(flow.mr_url) || branches.some(b => Boolean(b.mr_url));
   const mdArts = node.artifacts.filter((a: Artifact) => a.kind === outputKind);
   const latest = mdArts[mdArts.length - 1];
   // rendering is keyed off artifact kind, never the node kind: the output's
@@ -111,7 +114,7 @@ export default function AgentView() {
           variant="outline"
           onClick={() => action(FLOW_ACTION.CREATE_CHANGE_REQUEST, { nodeKey: node.node_key })}
         >
-          <GitMerge size={13} /> Open PR
+          <GitMerge size={13} /> {changeRequestExists ? 'Push changes' : 'Open PR'}
         </Button>
       )}
     </>

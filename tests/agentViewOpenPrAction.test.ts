@@ -115,6 +115,20 @@ describe("agent node panel — Open PR affordance", () => {
     expect(renderPanel(contextFor({}, { branches: [] }))).not.toContain("Open PR");
   });
 
+  it("says Push changes once the branch has an MR", () => {
+    const html = renderPanel(
+      contextFor({}, { branches: [{ ...branchRow, mr_url: "https://gitlab.example/mr/7", mr_iid: 7 }] }),
+    );
+    expect(html).toContain("Push changes");
+    expect(html).not.toContain("Open PR");
+  });
+
+  it("says Push changes when the flow already has an MR", () => {
+    const html = renderPanel(contextFor({}, { mr_url: "https://gitlab.example/mr/9", mr_iid: 9 }));
+    expect(html).toContain("Push changes");
+    expect(html).not.toContain("Open PR");
+  });
+
   it("offers no Open PR while the run is live — the run owns the branch", () => {
     expect(renderPanel(contextFor({ status: FLOW_STATUS.RUNNING }))).not.toContain("Open PR");
     expect(renderPanel(contextFor({ status: FLOW_STATUS.AWAITING_APPROVAL }))).not.toContain("Open PR");
