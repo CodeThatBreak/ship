@@ -17,6 +17,7 @@ import { API_ERROR_CODE, SKIPPED_DUPLICATE_TRIGGER_COPY } from "@/constants/api"
 import { CostChip } from "./CostChip";
 import { apiFetch } from "@/hooks/localApiToken";
 import { useNodePanel } from "./context";
+import { isAgenticNode } from "./utils/isAgenticNode";
 
 /** The panel header title: the node contract's panel title wins, then the
  *  template label override, the template's own display name, the instance key. */
@@ -117,7 +118,10 @@ export function PanelShell({
           </Alert>
         )}
         {node.status === FLOW_STATUS.WAITING && <WaitBanner flow={cockpitFlow} node={node} />}
-        {node.status === FLOW_STATUS.RUNNING && (
+        {/* Agentic nodes already surface their running state in the chat rail
+            (and swap the composer's send button for a stop button), so the
+            centered "agent is working" block would be a duplicate here. */}
+        {node.status === FLOW_STATUS.RUNNING && !isAgenticNode(node) && (
           <div className="flex flex-col items-center justify-center text-center px-5 py-8 gap-2">
             <Spinner className="size-[22px] border-[3px]" />
             <p className="text-muted-foreground text-sm font-medium m-0">{runningLabel}</p>

@@ -8,6 +8,7 @@ import BuildView from './views/BuildView';
 import DeclarativeView from './views/DeclarativeView';
 import { GenericDeclarativePanel } from './genericDeclarativePanel';
 import NodeChat from './NodeChat';
+import { isAgenticNode } from './utils/isAgenticNode';
 import PipelineView from './views/PipelineView';
 import ResolveView from './views/ResolveView';
 import ReviewView from './views/ReviewView';
@@ -52,9 +53,8 @@ const PANEL_BY_KIND: Record<string, ComponentType> = {
 
 /** The chat rail for the node's chat-capability grade (or null: nothing to converse with). */
 const resolveChat = (node: Node): ComponentType | null => {
-  const capabilities = node.capabilities;
-  if (!capabilities?.refinable) return null;
-  return capabilities.chatMode === 'plan' ? PlanNodeChat : NodeChat;
+  if (!isAgenticNode(node)) return null;
+  return node.capabilities?.chatMode === 'plan' ? PlanNodeChat : NodeChat;
 };
 
 /** The workspace serving this node — every node resolves to a panel; unknown

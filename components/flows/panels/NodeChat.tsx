@@ -2,6 +2,7 @@
 import ChatPanel from '@/components/chat/feed/ChatPanel';
 import ChatPanelSkeleton from '@/components/chat/feed/ChatPanelSkeleton';
 import { InlineError } from '@/components/shared/InlineError';
+import { FLOW_ACTION } from '@/constants/flow';
 import { useNodePanel } from "./context";
 import { useNodeChatBindings } from "./hooks/useNodeChatBindings";
 import { useNodePromptPrefill } from "./hooks/useNodePromptPrefill";
@@ -19,7 +20,7 @@ const FIRST_RUN_PLACEHOLDER = 'Review the prompt, then send to run';
  * capabilities gate everything — no node-key checks).
  */
 export default function NodeChat() {
-  const { flow, node, events, modelChoice, setModelChoice } = useNodePanel();
+  const { flow, node, events, modelChoice, setModelChoice, action, actionPending } = useNodePanel();
   const { busy, nodeKeysByNodeId, nodeStatusByNodeId } = useNodeChatBindings();
   const { firstRun, prefill, isLoading, error, retry } = useNodePromptPrefill();
 
@@ -41,6 +42,8 @@ export default function NodeChat() {
       nodeStatusByNodeId={nodeStatusByNodeId}
       modelChoice={modelChoice}
       setModelChoice={setModelChoice}
+      onStop={() => action(FLOW_ACTION.CANCEL, { nodeKey: node.nodeKey })}
+      stopDisabled={actionPending}
       initialDraft={firstRun ? (prefill ?? undefined) : undefined}
       sendLabel={firstRun ? (node.capabilities?.startLabel ?? 'Send') : 'Send'}
       placeholder={firstRun ? FIRST_RUN_PLACEHOLDER : undefined}

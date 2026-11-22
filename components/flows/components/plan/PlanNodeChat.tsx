@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import ChatPanel from '@/components/chat/feed/ChatPanel';
 import ChatPanelSkeleton from '@/components/chat/feed/ChatPanelSkeleton';
+import { FLOW_ACTION } from '@/constants/flow';
 import { useNodePanel, useNodeChatBindings } from '../../panels';
 import { usePlanComposer } from './hooks/usePlanComposer/planComposerExports';
 import type { BranchPlan } from './types/planTypes';
@@ -15,7 +16,7 @@ import { MAIN_THREAD_CONFIG, REFINE_HINT } from './constants/thread';
  * `capabilities.chatMode === 'plan'`.
  */
 export default function PlanNodeChat() {
-  const { flow, node, events, modelChoice, setModelChoice } = useNodePanel();
+  const { flow, node, events, modelChoice, setModelChoice, action, actionPending } = useNodePanel();
   const { busy, nodeKeysByNodeId, nodeStatusByNodeId } = useNodeChatBindings();
 
   // Todo: Add a generic in usePaneNode
@@ -56,6 +57,8 @@ export default function PlanNodeChat() {
       nodeStatusByNodeId={nodeStatusByNodeId}
       modelChoice={modelChoice}
       setModelChoice={setModelChoice}
+      onStop={() => action(FLOW_ACTION.CANCEL, { nodeKey: node.nodeKey })}
+      stopDisabled={actionPending}
       threads={threads}
       activeThreadId={activeThreadId ?? undefined}
       onAction={onAction}

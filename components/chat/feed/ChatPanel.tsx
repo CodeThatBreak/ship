@@ -58,6 +58,11 @@ export default function ChatPanel({
   aside,
   error,
 
+  /** node cancel handler — while `busy`, the composer's send button becomes
+   *  a stop button wired here (agentic nodes own their running state) */
+  onStop,
+  stopDisabled,
+
   sendMutationFn,
 }: {
   flowId: string;
@@ -98,6 +103,9 @@ export default function ChatPanel({
 
   aside?: ReactNode;
   error?: ReactNode;
+
+  onStop?: () => void;
+  stopDisabled?: boolean;
 
   sendMutationFn?: SendMutationFn;
 }) {
@@ -252,6 +260,8 @@ export default function ChatPanel({
         canSelectModel={harnessAdded}
         canReset={canReset}
         sending={isSendingMessage}
+        onStop={busy ? onStop : undefined}
+        stopDisabled={stopDisabled}
         draft={initialDraft}
         sendLabel={sendLabel}
         modelChoice={modelChoice}

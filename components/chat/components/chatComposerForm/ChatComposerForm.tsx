@@ -12,6 +12,7 @@ import {
 import ModelSelector from '../../modelSelector/ModelSelector';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SendButton } from './components/SendButton';
+import { StopButton } from './components/StopButton';
 import { ResetButton } from './components/ResetButton';
 import { ChatSkeleton } from './components/ChatSkeleton';
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from '@/components/ui/input-group';
@@ -45,6 +46,8 @@ export default function ChatComposerForm({
   canSend,
   canSelectModel = true,
   sending,
+  onStop,
+  stopDisabled,
   chatInputRef,
   aside,
   error,
@@ -68,6 +71,11 @@ export default function ChatComposerForm({
    *  the form's own pending — true while a send is accepted but unfinished */
   sending?: boolean;
 
+  /** when given, the send button becomes a stop button (the agent is running) */
+  onStop?: () => void;
+  /** disables the stop button while its cancel action is in flight */
+  stopDisabled?: boolean;
+
   chatInputRef?: RefObject<ChatInputHandle | null>;
 
   aside: ReactNode;
@@ -87,9 +95,12 @@ export default function ChatComposerForm({
   const [pending, setPending] = useState(false);
 
   // the send gate: an explicit override stays authoritative; the default gate
-  // is a non-empty draft (and no pending send — ours or the outer mutation's)
+  // is a non-empty draft (and no pending send — ours or the outer mutation's).
+  // In stop mode the composer has no send affordance, so submitting (Enter
+  // included) is blocked entirely.
   const isSending = pending || sending === true;
-  const disableSendButton = (canSend ?? true) && draftState.trim().length > 0 && !isSending;
+  const stopping = onStop != null;
+  const disableSendButton = !stopping && (canSend ?? true) && draftState.trim().length > 0 && !isSending;
 
   const onModelChange = useCallback(
     (choice: ModelChoice | null) => {
@@ -199,7 +210,11 @@ export default function ChatComposerForm({
           <InputGroupAddon align="block-end">
             <ModelSelector value={modelChoice} onChange={onModelChange} disabled={!canSelectModel} />
             {aside}
-            <SendButton sendLabel={sendLabel} canSend={disableSendButton} sending={isSending} />
+            {onStop ? (
+              <StopButton onStop={onStop} disabled={stopDisabled} />
+            ) : (
+              <SendButton sendLabel={sendLabel} canSend={disableSendButton} sending={isSending} />
+            )}
           </InputGroupAddon>
         </InputGroup>
       )}
