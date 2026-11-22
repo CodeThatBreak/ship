@@ -32,7 +32,7 @@ import { RefreshCw, PanelLeftClose } from "lucide-react";
 import { KIND_GROUPS, usePaletteCatalog, type AuthorKind } from '../../hooks/usePaletteCatalog';
 import { PaletteGroup } from './PaletteGroup';
 import { PaletteRow } from './PaletteRow';
-import { KindRow } from '../configurator/fields/KindRow';
+import { KindRow } from '../configurator/components/fields/components/KindRow';
 import { PaletteSkeleton } from './PaletteSkeleton';
 import { PaletteLibrary } from './PaletteLibrary';
 import { PaletteRail } from './PaletteRail';

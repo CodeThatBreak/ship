@@ -12,9 +12,9 @@ import {
   CONFIG_FIELD_RENDERERS,
   FALLBACK_FIELD_RENDERER,
   configFieldRendererFor,
-} from "@/components/templateEditor/components/configurator/fields/configFieldRenderers";
-import { CONFIG_FIELD_TYPE } from "@/components/templateEditor/components/configurator/fields/constants/configFieldTypes";
-import type { ConfigFieldProps } from "@/components/templateEditor/components/configurator/fields/types/configFieldProps";
+} from "@/components/templateEditor/components/configurator/components/fields/utils/configFieldRenderers";
+import { CONFIG_FIELD_TYPE } from "@/components/templateEditor/components/configurator/components/fields/constants/configFieldTypes";
+import type { ConfigFieldProps } from "@/components/templateEditor/components/configurator/components/fields/types/configFieldProps";
 
 // the ten built-in `ConfigField.type` values, spelled out so the snapshot
 // fails loudly if the union (or the constants mirror) drifts

@@ -7,7 +7,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { EffectsConfigFields } from "@/components/templateEditor/components/configurator/fields/EffectsConfigFields";
+import { EffectsConfigFields } from "@/components/templateEditor/components/configurator/components/fields/components/EffectsConfigFields";
 import {
   EFFECT_LIFECYCLE,
   EFFECT_LIFECYCLE_SECTIONS,

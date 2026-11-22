@@ -94,5 +94,3 @@ export function EditorEdgeDrawer({
     </Sheet>
   );
 }
-
-/** The esc helper note is shared with the node drawer (EditorNodeDrawer). */

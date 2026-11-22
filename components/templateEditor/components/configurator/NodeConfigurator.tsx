@@ -1,26 +1,22 @@
-"use client";
-import { useCallback, useMemo } from "react";
-import { AlertTriangle, RefreshCw, Unplug } from "lucide-react";
+'use client';
+import { useCallback, useMemo } from 'react';
+import { AlertTriangle, RefreshCw, Unplug } from 'lucide-react';
 import { Button } from '../../../ui/button';
 import { ScrollArea } from '../../../ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '../../../ui/tabs';
 import type { EditorNode, EditorNodePatch } from '../../types';
-import {
-  NEXT_EDGE_KIND,
-  useUpstreamGroups,
-  type IncomingLink,
-} from '../../hooks/useUpstreamGroups';
-import { useNodeContractView } from '../../hooks/useNodeContractView';
-import { TAB_LABELS, useConfiguratorTabs } from '../../hooks/useConfiguratorTabs';
+import { NEXT_EDGE_KIND, useUpstreamGroups, type IncomingLink } from './hooks/useUpstreamGroups';
+import { useNodeContractView } from './hooks/useNodeContractView';
+import { TAB_ICONS, TAB_LABELS, useConfiguratorTabs } from './hooks/useConfiguratorTabs';
 import { buildVarGroups } from '../../variables';
-import { InputsTab } from "./InputsTab";
-import { PromptTab } from "./PromptTab";
-import { TriggerTab } from './TriggerTab';
-import { ConfigTab } from './ConfigTab';
-import { StartContractEditor } from './contract/StartContractEditor';
-import { ContractView } from './contract/ContractView';
+import { InputsTab } from './components/InputsTab';
+import { PromptTab } from './components/PromptTab';
+import { TriggerTab } from './components/TriggerTab';
+import { ConfigTab } from './components/ConfigTab';
+import { StartContractEditor } from './components/contract/components/StartContractEditor';
+import { ContractView } from './components/contract/ContractView';
 
-export type { IncomingLink, UpstreamGroup } from '../../hooks/useUpstreamGroups';
+export type { IncomingLink, UpstreamGroup } from './hooks/useUpstreamGroups';
 
 /**
  * The node configurator (§8): Trigger / Inputs / Config / Inputs & outputs
@@ -90,7 +86,7 @@ export function NodeConfiguratorBody({
       if (readOnly) return;
       onChange(patch);
     },
-    [readOnly, onChange],
+    [readOnly, onChange]
   );
   const { contractQuery, contract } = useNodeContractView(node);
 
@@ -103,13 +99,13 @@ export function NodeConfiguratorBody({
   const upstreamSources = useMemo(
     () =>
       groups
-        .filter((g) => g.edge.kind === NEXT_EDGE_KIND)
-        .map((g) => ({
+        .filter(g => g.edge.kind === NEXT_EDGE_KIND)
+        .map(g => ({
           key: g.source.key,
           label: g.label,
-          fields: g.fields.map((f) => ({ name: f.name, type: f.type })),
+          fields: g.fields.map(f => ({ name: f.name, type: f.type })),
         })),
-    [groups],
+    [groups]
   );
   // the full picker vocabulary (Phase 3 + 4): my inputs (the inherited merge
   // overlaid with the node's inputMap) → task context → upstream nodes →
@@ -122,10 +118,10 @@ export function NodeConfiguratorBody({
         upstream: upstreamSources,
         inputMap: (node?.inputMap ?? {}) as Record<string, unknown>,
       }),
-    [upstreamSources, taskFields, triggerFields, node?.inputMap],
+    [upstreamSources, taskFields, triggerFields, node?.inputMap]
   );
   // only `next` edges inherit — the isolation hint keys on them
-  const hasUpstream = groups.some((g) => g.edge.kind === NEXT_EDGE_KIND);
+  const hasUpstream = groups.some(g => g.edge.kind === NEXT_EDGE_KIND);
 
   const { tab, setTab, tabs } = useConfiguratorTabs({ node, contract });
 
@@ -137,10 +133,9 @@ export function NodeConfiguratorBody({
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/[0.04] px-3 py-2">
           <Unplug size={13} className="mt-0.5 shrink-0 text-warning" />
           <p className="text-[12px] text-warning/90 m-0">
-            Not connected yet — drag from a node&apos;s handle on the canvas to
-            wire it in. You can edit it meanwhile: the task context is available
-            as variables, and connected upstream nodes&apos; outputs join them
-            once an edge arrives.
+            Not connected yet — drag from a node&apos;s handle on the canvas to wire it in. You can edit it meanwhile:
+            the task context is available as variables, and connected upstream nodes&apos; outputs join them once an
+            edge arrives.
           </p>
         </div>
       )}
@@ -162,15 +157,9 @@ export function NodeConfiguratorBody({
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/[0.04] px-3 py-2">
           <AlertTriangle size={13} className="mt-0.5 shrink-0 text-destructive" />
           <p className="text-[12px] text-destructive m-0">
-            Couldn&apos;t load this node&apos;s contract — the config and
-            outputs stay unavailable until it loads.
+            Couldn&apos;t load this node&apos;s contract — the config and outputs stay unavailable until it loads.
           </p>
-          <Button
-            variant="outline"
-            size="xs"
-            className="shrink-0"
-            onClick={() => void contractQuery.refetch()}
-          >
+          <Button variant="outline" size="xs" className="shrink-0" onClick={() => void contractQuery.refetch()}>
             <RefreshCw size={12} /> Retry
           </Button>
         </div>
@@ -178,74 +167,70 @@ export function NodeConfiguratorBody({
       {/* tabs */}
       <Tabs
         value={tab}
-        onValueChange={(value) => setTab(value as typeof tab)}
+        onValueChange={value => setTab(value as typeof tab)}
         className="flex flex-col min-h-0 flex-1 gap-0"
       >
         <TabsList
           variant="line"
           aria-label="Node configuration sections"
-          className="h-auto w-full justify-start rounded-none border-b border-border -mx-2 px-2 bg-transparent"
+          className="w-full h-full justify-start rounded-none border-b border-border px-0 bg-transparent"
         >
-          {tabs.map((t) => (
-            <TabsTrigger
-              key={t}
-              value={t}
-              className="rounded-none px-3 py-1.5 text-[12.5px] font-medium data-active:border-info"
-            >
-              {TAB_LABELS[t] ?? t}
-            </TabsTrigger>
-          ))}
+          {tabs.map(t => {
+            const Icon = TAB_ICONS[t];
+            return (
+              <TabsTrigger
+                key={t}
+                value={t}
+                className="rounded-none px-3 py-2 text-[12.5px] font-medium data-active:border-info"
+              >
+                <Icon className="size-3.5" />
+                {TAB_LABELS[t] ?? t}
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
 
-      <ScrollArea className="flex-1">
-        <fieldset
-          disabled={readOnly}
-          className="min-w-0 border-0 p-0 m-0 pt-4 pr-1 disabled:opacity-100"
-        >
-        {tab === "trigger" ? (
-          <TriggerTab node={node} onChange={emitChange} />
-        ) : tab === "inputs" ? (
-          <InputsTab
-            key={node.key}
-            node={node}
-            upstream={upstreamSources}
-            taskFields={taskFields}
-            triggerFields={triggerFields}
-            templateId={templateId}
-            onChange={emitChange}
-          />
-        ) : tab === "prompt" ? (
-          <PromptTab
-            node={node}
-            contract={contract}
-            varGroups={varGroups}
-            invalidRefs={invalidRefs}
-            onChange={emitChange}
-            registerPendingFlush={registerPendingFlush}
-          />
-        ) : tab === "config" ? (
-          <ConfigTab
-            node={node}
-            onChange={emitChange}
-            contract={contract}
-            varGroups={varGroups}
-            hasUpstream={hasUpstream}
-            planDownstream={planDownstream}
-            invalidRefs={invalidRefs}
-            templateId={templateId}
-          />
-        ) : tab === "output" ? (
-          <StartContractEditor
-            key={node.key}
-            node={node}
-            onChange={emitChange}
-            taskFields={taskFields}
-          />
-        ) : (
-          <ContractView contract={contract} node={node} groups={groups} />
-        )}
-        </fieldset>
-      </ScrollArea>
+        <ScrollArea className="flex-1">
+          <fieldset disabled={readOnly} className="min-w-0 border-0 p-0 m-0 pt-4 pr-1 disabled:opacity-100">
+            {tab === 'trigger' ? (
+              <TriggerTab node={node} onChange={emitChange} />
+            ) : tab === 'inputs' ? (
+              <InputsTab
+                key={node.key}
+                node={node}
+                upstream={upstreamSources}
+                taskFields={taskFields}
+                triggerFields={triggerFields}
+                templateId={templateId}
+                onChange={emitChange}
+              />
+            ) : tab === 'prompt' ? (
+              <PromptTab
+                node={node}
+                contract={contract}
+                varGroups={varGroups}
+                invalidRefs={invalidRefs}
+                onChange={emitChange}
+                registerPendingFlush={registerPendingFlush}
+              />
+            ) : tab === 'config' ? (
+              <ConfigTab
+                node={node}
+                onChange={emitChange}
+                contract={contract}
+                varGroups={varGroups}
+                hasUpstream={hasUpstream}
+                planDownstream={planDownstream}
+                invalidRefs={invalidRefs}
+                templateId={templateId}
+              />
+            ) : tab === 'output' ? (
+              <StartContractEditor key={node.key} node={node} onChange={emitChange} taskFields={taskFields} />
+            ) : (
+              <ContractView contract={contract} node={node} groups={groups} />
+            )}
+          </fieldset>
+        </ScrollArea>
       </Tabs>
     </div>
   );

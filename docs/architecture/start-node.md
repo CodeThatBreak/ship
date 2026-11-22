@@ -59,7 +59,7 @@ Engine-only:
 
 - Parses the contract from `node.config` via `parseStartContract` (shared client-safe module `types/startContract.ts` — the engine's `lib/engine/nodes/kinds/start/contract.ts` is a thin re-export so client code never imports `lib/engine`).
 - Local `useState` for form values, prefilled from authored defaults; submit dispatches `FLOW_ACTION.RUN_NODE` through the panel context's `action`.
-- Contract authoring lives in the template editor: `components/templateEditor/components/configurator/contract/StartContractEditor.tsx`.
+- Contract authoring lives in the template editor: `components/templateEditor/components/configurator/components/contract/components/StartContractEditor.tsx`.
 
 ### Async states
 
@@ -71,7 +71,7 @@ Engine-only:
 
 - `components/flows/panels/views/StartView.tsx`
 - `components/flows/panels/panelFactory.tsx`
-- `components/templateEditor/components/configurator/contract/StartContractEditor.tsx`
+- `components/templateEditor/components/configurator/components/contract/components/StartContractEditor.tsx`
 - `types/startContract.ts`
 
 ## Backend architecture
@@ -140,5 +140,5 @@ None — no artifacts, no agent runs, no worktrees.
 | Node class | `lib/engine/nodes/kinds/start/startNode.ts` |
 | Contract schema/validation | `types/startContract.ts` |
 | Panel | `components/flows/panels/views/StartView.tsx` |
-| Contract editor | `components/templateEditor/components/configurator/contract/StartContractEditor.tsx` |
+| Contract editor | `components/templateEditor/components/configurator/components/contract/components/StartContractEditor.tsx` |
 | Flow context variables | `lib/engine/context/flowVariables.ts` |

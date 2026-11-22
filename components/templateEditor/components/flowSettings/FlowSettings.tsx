@@ -14,7 +14,7 @@ import { Lock } from "lucide-react";
 import { Field, FieldLabel } from '../../../ui/field';
 import { Input } from '../../../ui/input';
 import { Textarea } from '../../../ui/textarea';
-import { TaskContextSection } from '../configurator/prompt/TaskContextSection';
+import { TaskContextSection } from '../configurator/components/prompt/components/TaskContextSection';
 import { FlowSettingsAdvanced } from './FlowSettingsAdvanced';
 import { FlowSettingsSchedule } from './FlowSettingsSchedule';
 import type { TaskProviderInfo } from '../../types';

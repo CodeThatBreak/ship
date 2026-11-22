@@ -6,7 +6,7 @@
  */
 import { Card } from '../../../ui/card';
 import { Webhook as WebhookIcon } from "lucide-react";
-import { MaskedSecret } from '../configurator/fields/MaskedSecret';
+import { MaskedSecret } from '../configurator/components/fields/components/MaskedSecret';
 import { HookCurlExample } from "./HookCurlExample";
 
 export function HookCard({ hook }: { hook: { id: string; secret: string } }) {
