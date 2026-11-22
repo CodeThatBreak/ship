@@ -782,7 +782,7 @@ describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
     const ctxHelper = new DiffStubCtxHelper();
     const node = producingAgentNode(64, ctxHelper, ["changelog/x"]);
 
-    await node.run(seeded.ctx, { prompt: "Do the work" }, {});
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: [] });
 
     expect(await branchRowsOf(seeded.flowId)).toEqual([]);
     expect(await diffArtifactsOf(seeded.flowId)).toEqual([]);
@@ -843,7 +843,7 @@ describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
     const branchSpy = vi.spyOn(localGit, "currentBranch").mockResolvedValue("bugfix/local-68");
     const node = producingAgentNode(68, ctxHelper, []);
 
-    await node.run(seeded.ctx, { prompt: "Do the work" }, {});
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: [] });
 
     expect(branchSpy).not.toHaveBeenCalled();
     expect(ctxHelper.captured).toEqual([]);

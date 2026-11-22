@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { mcpSourcesSchema } from "../../templates/schemas/mcpSources";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../shared/split/schemas/splitKnobs";
-import { NEEDABLE_FACTS, PRODUCIBLE_FACTS } from "../../facts/types/facts";
+import { FACT_KIND, NEEDABLE_FACTS, PRODUCIBLE_FACTS } from "../../facts/types/facts";
 import {
   EFFECT_VERBS_AFTER_APPROVAL,
   EFFECT_VERBS_AFTER_SUCCESS,
@@ -114,13 +114,17 @@ export const AgentDefSchema = z.looseObject({
   split_parallel_max: splitParallelMaxSchema,
   /**
    * The git side effects this node's runs may establish (Task 06, Invariant
-   * F4): `result.git` is consumed only for the declared kinds — an undeclared
-   * kind stays dropped. Facts persist through the FactStore inside the
-   * terminal write's batch (Invariant F2). `change_request` is not
+   * F4): `result.git` is consumed only for the declared kinds — an explicit
+   * `produces: []` drops them all. Facts persist through the FactStore inside
+   * the terminal write's batch (Invariant F2). `change_request` is not
    * producible — MRs are established by the `create_change_request` verb
    * (Phase 3), never directly by a run.
+   *
+   * Hidden from the authoring form to keep it simple: new templates get both
+   * kinds by default. Existing templates keep whatever their stored config
+   * already says, and an explicit `[]` remains the per-template opt-out.
    */
-  produces: z.array(z.enum(PRODUCIBLE_FACTS)).default([]),
+  produces: z.array(z.enum(PRODUCIBLE_FACTS)).default([FACT_KIND.BRANCH, FACT_KIND.DIFF]),
   /**
    * The engine tools this node's running agent may call (task 13, Invariant
    * 10): the AgentToolService authorizes against the kind's `agentTools()`

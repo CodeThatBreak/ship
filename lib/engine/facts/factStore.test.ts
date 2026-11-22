@@ -312,8 +312,9 @@ describe("FactStore batch discipline (Task 06 — Invariant F2)", () => {
 });
 
 describe("AgentDefSchema.produces (Task 06 — the F4 pin Task 07 extends)", () => {
-  it("defaults to [] — an undeclaring agent establishes no facts", () => {
-    expect(AgentDefSchema.parse({}).produces).toEqual([]);
+  it("defaults to both fact kinds — the knob is hidden from the form, not removed from the config", () => {
+    expect(AgentDefSchema.parse({}).produces).toEqual(["branch", "diff"]);
+    expect(AgentDefSchema.parse({ produces: [] }).produces).toEqual([]);
   });
 
   it("accepts branch/diff and rejects change_request (not producible by a run)", () => {
@@ -322,10 +323,8 @@ describe("AgentDefSchema.produces (Task 06 — the F4 pin Task 07 extends)", () 
     expect(() => AgentDefSchema.parse({ produces: ["bogus"] })).toThrow();
   });
 
-  it("the authoring form exposes produces as a multi field over the fact vocabulary", () => {
-    const field = AGENT_CONFIG_FIELDS.find((f) => f.key === "produces");
-    expect(field?.type).toBe("multi");
-    expect(field?.options?.map((o) => o.value)).toEqual(["branch", "diff"]);
+  it("the authoring form no longer exposes produces", () => {
+    expect(AGENT_CONFIG_FIELDS.some((f) => f.key === "produces")).toBe(false);
   });
 });
 
@@ -461,7 +460,7 @@ describe("Agent run result.git → facts (Task 07 — the F4 consumption)", () =
       },
     );
 
-    await node.run(factCtx(flowId), { prompt: "Do the work" }, {});
+    await node.run(factCtx(flowId), { prompt: "Do the work" }, { produces: [] });
 
     expect(await testGet<{ count: bigint }>(`SELECT count(*) AS count FROM branches WHERE flow_id=$1`, flowId))
       .toMatchObject({ count: 0n });

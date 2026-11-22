@@ -71,6 +71,10 @@ const ctxHelper = {
   localPath: () => undefined,
   requireRunCwd: () => undefined,
   makeDiff: async () => ({ raw: "diff raw", stat: "+1 -1" }),
+  // agent nodes now pin a base SHA by default (the diff fact is on by default);
+  // a cloud stub has no local checkout to resolve it from
+  baseShaOf: async () => null,
+  headShaOf: async () => null,
 } as unknown as FlowContextHelper;
 
 const nodeRow = (over: Partial<NodeRow> = {}): NodeRow =>

@@ -6,7 +6,7 @@ import { EFFECTS_CONFIG_FIELD } from "../../../../constants/effectsConfig";
 import { MODE_CONFIG_FIELD } from "./mode";
 import { PROMPT_CONFIG_FIELD } from "./prompt";
 import { MODEL_CONFIG_FIELD } from "./model";
-import { baseRefConfigFields, agentToolsConfigFields, producesConfigFields, retryBudgetConfigFields, secretRefsConfigFields } from "./agentConfigFields";
+import { baseRefConfigFields, agentToolsConfigFields, retryBudgetConfigFields, secretRefsConfigFields } from "./agentConfigFields";
 import { OUTPUT_CONFIG_FIELD } from "./output";
 import { OUTPUT_SCHEMA_CONFIG_FIELD } from "./outputSchema";
 import { SPLIT_CONFIG_FIELD } from "./split";
@@ -27,9 +27,6 @@ export const AGENT_CONFIG_FIELDS: readonly ConfigField[] = [
   // output contract — declarative data, not class-level behavior
   ...baseRefConfigFields,
   ...retryBudgetConfigFields,
-  // the produces knob (Task 06, Invariant F4): which facts the runs may
-  // establish from result.git — undeclared kinds stay dropped
-  ...producesConfigFields,
   // the declarative effects map: side effects (e.g. create_change_request)
   // declared under a lifecycle — the declaration IS the capability for the
   // AUTOMATIC after-approval dispatch (a manual panel verb needs none)

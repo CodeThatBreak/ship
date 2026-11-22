@@ -106,6 +106,8 @@ describe("create_change_request verb (task 11 — design §4.2, findings A4/F2)"
 
   it("a node without a branch fact fails with the typed event and the MR is NOT created", async () => {
     const templateId = await seedVerbTemplate({
+      // the form no longer exposes `produces`; an explicit [] is the opt-out
+      produces: [],
       effects: { afterApproval: ["create_change_request"] },
     });
     const flowId = await harness.seedInlineFlow(
