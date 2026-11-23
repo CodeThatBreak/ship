@@ -2,6 +2,15 @@
 import { useCallback } from "react";
 import { boilerplateFor, NODE_KIND_DESCRIPTIONS } from "@/components/templateEditor/boilerplate";
 import { KIND_ICONS, nextDraftName, START_NODE_TEMPLATE_ID, uniqueKey } from "@/components/templateEditor/draft";
+import { CATALOG_KEY } from "@/constants/nodeKind";
+import {
+  DEFAULT_NEW_NODE_NAME,
+  DEFAULT_NODE_ICON,
+  DRAFT_ID_PREFIX,
+  EDITOR_NODE_KIND,
+  TRIGGER_TYPE,
+} from "../../constants/editorGraph";
+import { EDITOR_MESSAGES } from "../../constants/editorMessages";
 import { placeNewNodeIntoLayout } from "./placeNewNodeIntoLayout";
 import type { DraftKind, EditorDraftContext, PlacementOpts } from "./types";
 
@@ -20,7 +29,7 @@ export const useEditorNodePlacement = ({
     (opts: PlacementOpts): string | null => {
       const cur = draftRef.current;
       if (!cur) return null;
-      const key = uniqueKey(opts.name || "node", cur.nodes);
+      const key = uniqueKey(opts.name || DEFAULT_NEW_NODE_NAME, cur.nodes);
       placeNewNodeIntoLayout(key, cur, builderApi, setPositions);
       apply((d) => ({
         ...d,
@@ -34,8 +43,8 @@ export const useEditorNodePlacement = ({
             nodeTemplateId: opts.nodeTemplateId,
             label: key,
             overrideLabel: null,
-            trigger: { type: "auto" },
-            joinMode: "all",
+            trigger: { type: TRIGGER_TYPE.AUTO },
+            joinMode: EDITOR_NODE_KIND.ALL_JOIN,
             config: opts.config ?? {},
             inputMap: {},
             kind: opts.kind,
@@ -48,7 +57,7 @@ export const useEditorNodePlacement = ({
       }));
       setNodeDrawer(null);
       setPlacedKey(key);
-      setNotice("Node placed — drag from one of its handles to connect it.");
+      setNotice(EDITOR_MESSAGES.NODE_PLACED);
       return key;
     },
     [draftRef, apply, builderApi, setPositions, setNotice, setNodeDrawer, setPlacedKey],
@@ -64,14 +73,14 @@ export const useEditorNodePlacement = ({
       const cur = draftRef.current;
       if (!cur) return;
       if (isBuiltin && cur.nodes.some((n) => n.nodeTemplateId === nodeTemplateId)) {
-        setNotice(`Only one "${name}" node is allowed — this template already has one.`);
+        setNotice(EDITOR_MESSAGES.duplicateCatalogNode(name));
         return;
       }
       if (
-        catalogKey === "start" &&
+        catalogKey === CATALOG_KEY.START &&
         cur.nodes.some((n) => n.nodeTemplateId === START_NODE_TEMPLATE_ID)
       ) {
-        setNotice("Only one Start node is allowed — this template already has one.");
+        setNotice(EDITOR_MESSAGES.START_NODE_ALREADY_PRESENT);
         return;
       }
       void addInstance({
@@ -90,21 +99,21 @@ export const useEditorNodePlacement = ({
     (kind: DraftKind) => {
       const cur = draftRef.current;
       if (!cur) return;
-      const draftId = `draft:${draftSeq.current++}`;
+      const draftId = `${DRAFT_ID_PREFIX}${draftSeq.current++}`;
       const name = nextDraftName(kind, cur);
       const config = boilerplateFor(kind);
       void addInstance({
         nodeTemplateId: draftId,
         name,
         kind,
-        icon: KIND_ICONS[kind] ?? "bot",
+        icon: KIND_ICONS[kind] ?? DEFAULT_NODE_ICON,
         isBuiltin: false,
         config,
         draftDef: {
           draftId,
           kind,
           name,
-          icon: KIND_ICONS[kind] ?? "bot",
+          icon: KIND_ICONS[kind] ?? DEFAULT_NODE_ICON,
           description: NODE_KIND_DESCRIPTIONS[kind],
           config,
         },

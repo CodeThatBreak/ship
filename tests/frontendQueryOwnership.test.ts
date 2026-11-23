@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { queryKeys } from "@/constants/queryKeys";
 import { artifactQueryOptions } from "@/components/flows/queries";
-import { repoChoicesQueryOptions } from "@/components/builder/queries";
+import { repoChoicesQueryOptions } from "@/components/builder/editor/queries";
 import { nodeContractQueryOptions } from "@/components/templateEditor/queries";
 import { settingsQueryOptions } from "@/components/settings/queries";
 

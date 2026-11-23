@@ -21,17 +21,12 @@ import {
   type EditorNodePatch,
 } from '@/components/templateEditor/types';
 import { iconForIconName } from '@/components/templateEditor/icons';
-import { KIND_LABELS } from '@/components/templateEditor/draft';
-import type { TriggerField } from '../hooks/useInstanceContracts';
-
-/** Node-type badge copy — the palette's proper labels, not the raw kind key. */
-const NODE_TYPE_LABELS: Record<string, string> = {
-  ...KIND_LABELS,
-  builtin: 'Built-in',
-};
+import { EDITOR_NODE_KIND } from '../../constants/editorGraph';
+import { NODE_TYPE_LABELS } from '../../constants/editorLabels';
+import type { TriggerField } from '../../hooks/useInstanceContracts';
 
 function nodeTypeLabel(node: EditorNode): string {
-  const kind = node.kind ?? 'builtin';
+  const kind = node.kind ?? EDITOR_NODE_KIND.BUILTIN;
   return NODE_TYPE_LABELS[kind] ?? kind;
 }
 
@@ -104,7 +99,7 @@ export function EditorNodeDrawer({
                   <Zap data-icon="inline-start" />
                   {describeTrigger(node.trigger)}
                 </Badge>
-                {node.joinMode === 'any' && (
+                {node.joinMode === EDITOR_NODE_KIND.ANY_JOIN && (
                   <Badge className="bg-warning/10 text-warning text-[10px] py-0">any-join</Badge>
                 )}
               </div>

@@ -22,6 +22,7 @@ import {
   editorSaveErrorFromResponse,
   shouldAdoptServerDraftAfterSave,
 } from "../utils/editorSaveResponse";
+import { EDITOR_MESSAGES } from "../constants/editorMessages";
 
 export interface EditorSaveDeps {
   machine: TemplateDraftMachine;
@@ -114,7 +115,7 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
           editGenerationRef.current,
         )
       ) {
-        setNotice("Draft saved — new flows snapshot this version.");
+        setNotice(EDITOR_MESSAGES.SAVED_NEW_VERSION);
         setDirty(false);
         validation.clear();
         if (newNodeTemplates.length) setCatalogEpoch((e) => e + 1);
@@ -124,14 +125,12 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
           resetPositions(positionsOf(refreshed.data));
         }
       } else {
-        setNotice(
-          "Draft saved — newer local edits were kept on the canvas.",
-        );
+        setNotice(EDITOR_MESSAGES.SAVED_KEPT_LOCAL_EDITS);
       }
 
       await queryClient.invalidateQueries({ queryKey: queryKeys.templatesGallery });
     } catch (e) {
-      setError(errorMessageOf(e) ?? "Failed to save the draft — try again.");
+      setError(errorMessageOf(e) ?? EDITOR_MESSAGES.SAVE_FAILED);
     } finally {
       setSaving(false);
     }

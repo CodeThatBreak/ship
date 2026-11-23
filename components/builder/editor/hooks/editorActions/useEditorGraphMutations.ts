@@ -7,6 +7,10 @@ import { nodeContractRequest } from "@/components/templateEditor/utils/contractR
 import { nodeLabel, type EditorNode } from "@/components/templateEditor/types";
 import { START_NODE_TEMPLATE_ID, uniqueKey, type Draft } from "@/components/templateEditor/draft";
 import { edgeDedupeKey } from "@/constants/templateGraph";
+import { NODE_KIND } from "@/constants/nodeKind";
+import { EDITOR_MESSAGES } from "../../constants/editorMessages";
+import { EDGE_KIND } from "../../constants/editorGraph";
+import { indexAfterRemoval } from "../../utils/indexAfterRemoval";
 import type { EditorDraftContext } from "./types";
 
 export const useEditorGraphMutations = ({
@@ -24,9 +28,7 @@ export const useEditorGraphMutations = ({
       const cur = draftRef.current;
       if (!cur) return;
       if (node.nodeTemplateId === START_NODE_TEMPLATE_ID) {
-        setNotice(
-          "The Start node can't be deleted — it's the flow's entry. Rewire its edges instead.",
-        );
+        setNotice(EDITOR_MESSAGES.START_NODE_UNDELETABLE);
         return;
       }
       apply((d) => ({
@@ -56,9 +58,7 @@ export const useEditorGraphMutations = ({
         ...d,
         edges: d.edges.filter((_, i) => i !== index),
       }));
-      setEdgeDrawer((cur) =>
-        cur == null ? cur : cur === index ? null : cur > index ? cur - 1 : cur,
-      );
+      setEdgeDrawer((cur) => indexAfterRemoval(cur, index));
     },
     [draftRef, apply, setEdgeDrawer],
   );
@@ -72,8 +72,8 @@ export const useEditorGraphMutations = ({
       if (src.nodeTemplateId === START_NODE_TEMPLATE_ID || src.isBuiltin) {
         setNotice(
           src.isBuiltin
-            ? "Built-in nodes can't be duplicated — add at most one from the palette."
-            : "Only one Start node is allowed — this template already has one.",
+            ? EDITOR_MESSAGES.BUILTIN_NODE_UNDUPLICATABLE
+            : EDITOR_MESSAGES.START_NODE_ALREADY_PRESENT,
         );
         return;
       }
@@ -96,7 +96,7 @@ export const useEditorGraphMutations = ({
       }));
       setPositions((p) => ({ ...p, [newKey]: { x: pos.x + 44, y: pos.y + 44 } }));
       scheduleSave();
-      setNotice("Node duplicated — drag from one of its handles to connect it.");
+      setNotice(EDITOR_MESSAGES.NODE_DUPLICATED);
     },
     [draftRef, apply, positions, setPositions, scheduleSave, setNotice],
   );
@@ -111,7 +111,7 @@ export const useEditorGraphMutations = ({
   const autoLabelDecisionEdge = useCallback(
     async (from: string, to: string, edges: Draft["edges"]) => {
       const src = draftRef.current?.nodes.find((n) => n.key === from);
-      if (src?.kind !== "decision") return;
+      if (src?.kind !== NODE_KIND.DECISION) return;
       const request = nodeContractRequest(src);
       const contract = await queryClient
         .fetchQuery(nodeContractQueryOptions(request))
@@ -142,14 +142,14 @@ export const useEditorGraphMutations = ({
           edgeDedupeKey(e.from, e.to, e.label) === edgeDedupeKey(from, to, branchLabel ?? null),
       );
       if (exists) {
-        setNotice(`Nodes are already connected (${from} → ${to}).`);
+        setNotice(EDITOR_MESSAGES.duplicateEdge(from, to));
         return;
       }
       let nextEdgeCount = 0;
       apply((d) => {
         const nextEdges: Draft["edges"] = [
           ...d.edges,
-          { from, to, kind: "next", label: branchLabel ?? null, condition: null },
+          { from, to, kind: EDGE_KIND.NEXT, label: branchLabel ?? null, condition: null },
         ];
         nextEdgeCount = nextEdges.length;
         return { ...d, edges: nextEdges };

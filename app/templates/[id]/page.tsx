@@ -12,7 +12,7 @@ import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/queryKeys";
 import { makeServerQueryClient } from "@/constants/queryClient";
 import { loadEditorBoot } from "@/loaders/templates";
-import { TemplateEditor } from '@/components/builder/components/EditorPage';
+import { TemplateEditor } from '@/components/builder/editor/EditorPage';
 
 export const dynamic = "force-dynamic";
 

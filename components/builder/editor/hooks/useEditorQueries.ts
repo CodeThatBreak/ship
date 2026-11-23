@@ -22,6 +22,7 @@ import type {
   EditorTaskProvider,
   TemplateEditorDetail,
 } from "@/types/templateEditor";
+import { EDITOR_NODE_KIND, TRIGGER_TYPE } from "../constants/editorGraph";
 
 /** GET /api/templates/[id] — the full editor payload (non-OK throws). */
 export async function fetchTemplateDetail(
@@ -63,7 +64,7 @@ function mapTrigger(
 ): EditorNode["trigger"] {
   const t = v && typeof v === "object" ? v : null;
   return {
-    type: typeof t?.type === "string" ? t.type : "auto",
+    type: typeof t?.type === "string" ? t.type : TRIGGER_TYPE.AUTO,
     ...(typeof t?.minutes === "number" ? { minutes: t.minutes } : {}),
     ...(typeof t?.wait_for === "string" ? { wait_for: t.wait_for } : {}),
   };
@@ -90,7 +91,7 @@ export function detailToDraft(
         overrideLabel:
           n.label && n.label !== n.catalogName ? n.label : null,
         trigger: mapTrigger(n.trigger),
-        joinMode: n.joinMode ?? "all",
+        joinMode: n.joinMode ?? EDITOR_NODE_KIND.ALL_JOIN,
         config: n.config ?? {},
         inputMap: n.inputMap ?? {},
         kind: n.kind ?? null,

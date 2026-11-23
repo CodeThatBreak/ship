@@ -10,7 +10,7 @@ import BuilderCanvas, { type BuilderApi } from '@/components/templateEditor/comp
 import type { NodeKind } from "@/constants/nodeKind";
 import type { EditorEdge, EditorNode } from "@/components/templateEditor/types";
 import type { CanvasPosition } from "@/components/templateEditor/draft";
-import type { BranchChoice } from '../hooks/useInstanceContracts';
+import type { BranchChoice } from '../../hooks/useInstanceContracts';
 
 export interface EditorCanvasProps {
   templateId: string;

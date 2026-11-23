@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { LayoutSync } from "@/components/templateEditor/hooks/useNodePositions";
+import { LAYOUT_SYNC_MESSAGE } from "../../constants/editorLabels";
 
 export interface EditorHeaderProps {
   template: {
@@ -49,6 +50,7 @@ export function EditorHeader({
   onOpenSettings,
   onSave,
 }: EditorHeaderProps) {
+  const layoutMessage = LAYOUT_SYNC_MESSAGE[layoutSync];
   return (
     <header className="h-14 shrink-0 flex items-center gap-3 px-4 border-b border-border bg-card">
       <Button
@@ -76,17 +78,11 @@ export function EditorHeader({
         <p className="text-muted-foreground text-[11px] m-0">
           {nodeCount} node{nodeCount === 1 ? "" : "s"} · {edgeCount} edge
           {edgeCount === 1 ? "" : "s"}
-          {(layoutSync === "pending" || layoutSync === "saved" || layoutSync === "error") && (
+          {layoutMessage && (
             <span>
               {" "}
               ·{" "}
-              {layoutSync === "pending"
-                ? "saving layout…"
-                : layoutSync === "saved"
-                  ? "layout autosaved"
-                  : (
-                    <span className="text-destructive">layout save failed</span>
-                  )}
+              <span className={layoutMessage.className}>{layoutMessage.text}</span>
             </span>
           )}
           {dirty && (

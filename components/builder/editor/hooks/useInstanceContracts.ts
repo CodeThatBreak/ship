@@ -6,6 +6,8 @@ import { nodeContractQueryOptions } from "@/components/templateEditor/queries";
 import { nodeContractRequest } from "@/components/templateEditor/utils/contractRequest";
 import { schemaRows } from "@/components/templateEditor/variables";
 import { useDeferredNodeContractRequest } from "@/components/templateEditor/hooks/useDeferredNodeContractRequest";
+import { NODE_KIND } from "@/constants/nodeKind";
+import { NO_CONTRACT_CACHE_KEY } from "../constants/editorGraph";
 
 export interface BranchChoice {
   label: string;
@@ -43,7 +45,7 @@ export interface InstanceContracts {
 
 export const useInstanceContracts = (draft: Draft | null): InstanceContracts => {
   const decisionNodes = useMemo(
-    () => (draft ? draft.nodes.filter((n) => n.kind === "decision") : []),
+    () => (draft ? draft.nodes.filter((n) => n.kind === NODE_KIND.DECISION) : []),
     [draft],
   );
   const pendingDecisions = useMemo(
@@ -80,7 +82,7 @@ export const useInstanceContracts = (draft: Draft | null): InstanceContracts => 
     const out: Record<string, BranchChoice[]> = {};
     if (!draft) return out;
     for (const n of draft.nodes) {
-      if (n.kind !== "decision") continue;
+      if (n.kind !== NODE_KIND.DECISION) continue;
       const own = ownChoices(n);
       if (own) out[n.key] = own;
     }
@@ -99,7 +101,7 @@ export const useInstanceContracts = (draft: Draft | null): InstanceContracts => 
   const startRequest = useDeferredNodeContractRequest(startNode);
   const { data: startContract } = useQuery({
     ...nodeContractQueryOptions(
-      startRequest ?? { cacheKey: "none", body: {} },
+      startRequest ?? { cacheKey: NO_CONTRACT_CACHE_KEY, body: {} },
     ),
     enabled: startRequest != null,
     placeholderData: keepPreviousData,

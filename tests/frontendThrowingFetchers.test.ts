@@ -4,7 +4,7 @@ import { fetchJsonOr, settingsQueryOptions } from "@/components/settings/queries
 import {
   repoChoicesQueryOptions,
   taskProvidersQueryOptions,
-} from "@/components/builder/queries";
+} from "@/components/builder/editor/queries";
 
 describe("frontend throwing fetchers (Task 14)", () => {
   afterEach(() => {

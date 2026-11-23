@@ -7,6 +7,7 @@
  */
 import Link from "next/link";
 import { ArrowLeft, XCircle } from "lucide-react";
+import { APP_ROUTES } from "@/constants/routes";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
@@ -28,7 +29,7 @@ export function EditorError({ message, detail, onRetry }: EditorErrorProps) {
           )}
         </span>
         <AlertAction>
-          <Button size="sm" variant="outline" render={<Link href="/templates" />}>
+          <Button size="sm" variant="outline" render={<Link href={APP_ROUTES.TEMPLATES} />}>
             <ArrowLeft size={13} /> Templates
           </Button>
           <Button size="sm" variant="outline" onClick={onRetry}>

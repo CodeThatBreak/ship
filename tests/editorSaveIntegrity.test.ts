@@ -4,7 +4,7 @@ import { QueryClient } from "@tanstack/react-query";
 import {
   editorSaveErrorFromResponse,
   shouldAdoptServerDraftAfterSave,
-} from "@/components/builder/utils/editorSaveResponse";
+} from "@/components/builder/editor/utils/editorSaveResponse";
 import { shouldApplyValidationSeq } from "@/components/templateEditor/utils/validationSeq";
 
 import {

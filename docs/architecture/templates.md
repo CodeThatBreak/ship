@@ -101,7 +101,7 @@ flowchart LR
 ### UI surface
 
 - **Gallery** — `app/(workspace)/templates/page.tsx` → `components/templates/TemplateGallery.tsx` (SSR-prefetched via `loaders/templates.ts`, hydrated into TanStack Query); `app/(workspace)/templates/nodes/page.tsx` → `TemplateNodesCatalog.tsx` for the node catalog.
-- **Editor** — `app/templates/[id]/page.tsx` → `components/builder/components/EditorPage.tsx`; the editor island lives under `components/templateEditor/` (builder canvas, palette rail, node configurator, edge editor, webhook card, condition builder with the JSONata preview line). First paint is dehydrated from server-side service calls — the same mappings the API routes wrap.
+- **Editor** — `app/templates/[id]/page.tsx` → `components/builder/editor/EditorPage.tsx`; the editor island lives under `components/templateEditor/` (builder canvas, palette rail, node configurator, edge editor, webhook card, condition builder with the JSONata preview line). First paint is dehydrated from server-side service calls — the same mappings the API routes wrap.
 
 ## Data model
 
@@ -135,4 +135,4 @@ flowchart LR
 | Template routes | `app/api/templates/route.ts`, `[id]/route.ts`, `[id]/export/route.ts`, `import/route.ts`, `[id]/validate/route.ts`, `[id]/preview/route.ts` |
 | Node-template routes | `app/api/node-templates/route.ts`, `[id]/route.ts` |
 | Gallery + catalog UI | `app/(workspace)/templates/page.tsx`, `components/templates/TemplateGallery.tsx` |
-| Editor UI | `app/templates/[id]/page.tsx`, `components/builder/components/EditorPage.tsx`, `components/templateEditor/` |
+| Editor UI | `app/templates/[id]/page.tsx`, `components/builder/editor/EditorPage.tsx`, `components/templateEditor/` |

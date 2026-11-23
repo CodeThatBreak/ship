@@ -18,6 +18,7 @@
  */
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { APP_ROUTES } from "@/constants/routes";
 import { errorMessageOf } from "@/hooks/fetchJson";
 import {
   useNavigationGuard,
@@ -30,26 +31,27 @@ import { useTemplateDraft } from "@/components/templateEditor/hooks/useTemplateD
 import type { Draft } from "@/components/templateEditor/draft";
 import { useNodePositions } from "@/components/templateEditor/hooks/useNodePositions";
 import { useTemplateValidation } from "@/components/templateEditor/hooks/useTemplateValidation";
-import { EditorHeader } from "./EditorHeader";
-import { EditorNotices } from "./EditorNotices";
-import { EditorCanvas } from "./EditorCanvas";
-import { EditorNodeDrawer } from "./EditorNodeDrawer";
-import { EditorEdgeDrawer } from "./EditorEdgeDrawer";
-import { EditorSettingsDrawer } from "./EditorSettingsDrawer";
-import { EditorLeaveConfirm } from "./EditorLeaveConfirm";
-import { EditorLoading } from "./EditorLoading";
-import { EditorError } from "./EditorError";
+import { EditorHeader } from "./components/header/EditorHeader";
+import { EditorNotices } from "./components/header/EditorNotices";
+import { EditorCanvas } from "./components/canvas/EditorCanvas";
+import { EditorNodeDrawer } from "./components/drawers/EditorNodeDrawer";
+import { EditorEdgeDrawer } from "./components/drawers/EditorEdgeDrawer";
+import { EditorSettingsDrawer } from "./components/drawers/EditorSettingsDrawer";
+import { EditorLeaveConfirm } from "./components/dialogs/EditorLeaveConfirm";
+import { EditorLoading } from "./components/states/EditorLoading";
+import { EditorError } from "./components/states/EditorError";
 import {
   detailToDraft,
   positionsOf,
   useRepoChoices,
   useTaskProviders,
   useTemplateDetail,
-} from '../hooks/useEditorQueries';
-import { useInstanceContracts } from '../hooks/useInstanceContracts';
-import { useEditorActions } from '../hooks/useEditorActions';
-import { useEditorSave } from '../hooks/useEditorSave';
-import { usePendingWriteFlushes } from '../hooks/usePendingWriteFlushes';
+} from './hooks/useEditorQueries';
+import { useInstanceContracts } from './hooks/useInstanceContracts';
+import { useEditorActions } from './hooks/useEditorActions';
+import { useEditorSave } from './hooks/useEditorSave';
+import { usePendingWriteFlushes } from './hooks/usePendingWriteFlushes';
+import { EDITOR_MESSAGES } from './constants/editorMessages';
 
 export interface TemplateEditorProps {
   /** the owning template's route param — validated server-side (page.tsx) */
@@ -183,7 +185,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
     if (detailQuery.isError) {
       return (
         <EditorError
-          message={detailQuery.error?.message ?? "Failed to load the template."}
+          message={detailQuery.error?.message ?? EDITOR_MESSAGES.DETAIL_LOAD_FAILED}
           onRetry={() => void detailQuery.refetch()}
         />
       );
@@ -196,10 +198,10 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   const providers = providersQuery.data ?? [];
   const repos = reposQuery.data ?? [];
   const providersError = providersQuery.isError
-    ? (errorMessageOf(providersQuery.error) ?? "Couldn't load task providers.")
+    ? (errorMessageOf(providersQuery.error) ?? EDITOR_MESSAGES.PROVIDERS_LOAD_FAILED)
     : null;
   const reposError = reposQuery.isError
-    ? (errorMessageOf(reposQuery.error) ?? "Couldn't load repos.")
+    ? (errorMessageOf(reposQuery.error) ?? EDITOR_MESSAGES.REPOS_LOAD_FAILED)
     : null;
   const hook = detailQuery.data?.hook ?? null;
   // the template's declared task type (trigger.task_type — the Task context
@@ -248,8 +250,9 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         saving={saveApi.saving}
         layoutSync={layout.layoutSync}
         onBack={() => {
-          if (machine.dirty) requestLeave({ kind: "link", href: "/templates" });
-          else router.push("/templates");
+          if (machine.dirty)
+            requestLeave({ kind: "link", href: APP_ROUTES.TEMPLATES });
+          else router.push(APP_ROUTES.TEMPLATES);
         }}
         onUndo={machine.undo}
         onRedo={machine.redo}
@@ -386,7 +389,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
             router.push(target.href);
             return;
           }
-          router.push("/templates");
+          router.push(APP_ROUTES.TEMPLATES);
         }}
       />
     </main>

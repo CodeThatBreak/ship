@@ -56,11 +56,11 @@ const MAPS = {
     TemplateNodesCatalog: "@/components/templates/TemplateNodesCatalog",
   },
   "@/components/builder": {
-    TemplateEditor: "@/components/builder/EditorPage",
-    TemplateEditorProps: "@/components/builder/EditorPage",
-    EditorLoading: "@/components/builder/EditorLoading",
-    repoChoicesQueryOptions: "@/components/builder/queries",
-    fetchRepoChoices: "@/components/builder/queries",
+    TemplateEditor: "@/components/builder/editor/EditorPage",
+    TemplateEditorProps: "@/components/builder/editor/EditorPage",
+    EditorLoading: "@/components/builder/editor/components/EditorLoading",
+    repoChoicesQueryOptions: "@/components/builder/editor/queries",
+    fetchRepoChoices: "@/components/builder/editor/queries",
   },
   "@/components/layout": {
     AppSidebar: "@/components/layout/AppSidebar",

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/sheet";
 import { EdgeEditor } from '@/components/templateEditor/components/edge/EdgeEditor';
 import type { EditorEdge, EditorNode, TaskProviderInfo } from "@/components/templateEditor/types";
-import type { TriggerField } from '../hooks/useInstanceContracts';
+import type { TriggerField } from '../../hooks/useInstanceContracts';
 import { SheetFooterHelper } from "@/components/shared/SheetFooterHelper";
 
 export interface EditorEdgeDrawerProps {

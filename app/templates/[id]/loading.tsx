@@ -1,4 +1,4 @@
-import { EditorLoading } from '@/components/builder/components/EditorLoading';
+import { EditorLoading } from '@/components/builder/editor/components/states/EditorLoading';
 
 /**
  * Template editor loading state: the fullscreen builder layout skeleton
