@@ -1,5 +1,5 @@
 "use client";
-import { AlertTriangle, Clock, RotateCcw, Square } from "lucide-react";
+import { Clock, Square } from "lucide-react";
 import type { FlowData, Node } from "@/types/flow";
 import {
   FLOW_ACTION,
@@ -15,6 +15,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { errorMessageOf, errorCodeOf } from "@/hooks/fetchJson";
 import { API_ERROR_CODE, SKIPPED_DUPLICATE_TRIGGER_COPY } from "@/constants/api";
 import { CostChip } from "./CostChip";
+import { PanelErrorAlert } from "./PanelErrorAlert";
 import { apiFetch } from "@/hooks/localApiToken";
 import { useNodePanel } from "./context";
 import { isAgenticNode } from "./utils/isAgenticNode";
@@ -93,29 +94,20 @@ export function PanelShell({
           </Alert>
         )}
         {!actionSkipped && actionMessage && (
-          <Alert variant="destructive" className="mb-3.5">
-            <AlertTriangle size={16} className="shrink-0" />
-            <span className="flex-1">{actionMessage}</span>
-            <Button size="sm" variant="outline" onClick={() => retryAction()}>
-              <RotateCcw size={13} /> Retry
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => resetAction()}>
-              Dismiss
-            </Button>
-          </Alert>
+          <PanelErrorAlert
+            title="Action failed"
+            description={actionMessage}
+            onRetry={() => retryAction()}
+            onDismiss={() => resetAction()}
+          />
         )}
         {!hideFailed && node.status === FLOW_STATUS.FAILED && (
-          <Alert variant="destructive" className="mb-3.5">
-            <AlertTriangle size={16} className="shrink-0" />
-            <span className="flex-1">This step failed — check the activity feed for details.</span>
-            <Button
-              size="sm"
-              disabled={actionPending}
-              onClick={() => action(FLOW_ACTION.RETRY, { nodeKey: node.nodeKey })}
-            >
-              <RotateCcw size={13} /> Retry
-            </Button>
-          </Alert>
+          <PanelErrorAlert
+            title="This step failed"
+            description="Check the activity feed for details."
+            retryPending={actionPending}
+            onRetry={() => action(FLOW_ACTION.RETRY, { nodeKey: node.nodeKey })}
+          />
         )}
         {node.status === FLOW_STATUS.WAITING && <WaitBanner flow={cockpitFlow} node={node} />}
         {/* Agentic nodes already surface their running state in the chat rail
