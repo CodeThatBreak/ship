@@ -37,9 +37,8 @@ export function DeleteFlowDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete flow for “{flow?.taskKey}”?</AlertDialogTitle>
           <AlertDialogDescription>
-            The whole flow is removed: nodes, runs, comments, events and any
-            fanned-out step sub-flows. The local worktree (if any) is deleted
-            too. This cannot be undone.
+            The whole flow is removed: nodes, runs, comments and events. The
+            local worktree (if any) is deleted too. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {errorMessage ? (

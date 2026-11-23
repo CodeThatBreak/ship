@@ -2,7 +2,6 @@ import "server-only";
 
 import { lintStartContract } from "../nodes/kinds/start/contract";
 import { nodeRegistry } from "../nodes/registry";
-import { fanoutOf } from "./nodeConfig";
 import { lintNodeTrigger } from "./lintNodeTrigger";
 import { outputFieldsFor } from "./outputFields";
 import { shallowMerge } from "./utils/shallowMerge";
@@ -27,13 +26,7 @@ export const buildNodeContracts = (
     const nt = catalog[n.nodeTemplateId];
     if (!nt) continue; // validated() already reports unknown node templates
     const mergedConfig = shallowMerge(nt.config, n.config);
-    let fields = outputFieldsFor(nt.kind, mergedConfig);
-    // ── fan-out rule 4: upstream-contract statics use the EFFECTIVE fan-out
-    // contract of the referenced node — whole ⇒ the declared schema;
-    // steps/from-plan ⇒ the aggregate shape ({{...output.steps.*}} is the
-    // only addressable path, so downstream mappings are stable across plan
-    // revisions — rev 3 decision)
-    if (fanoutOf(mergedConfig).mode !== "whole") fields = ["steps"];
+    const fields = outputFieldsFor(nt.kind, mergedConfig);
     contractOfKey.set(n.key, { fields, kind: nt.kind });
     // the entry contract declaration itself is validated here (loud, readable)
     if (nt.isBuiltin && nt.key === nodeRegistry.entryKey()) {

@@ -7,8 +7,7 @@ import { NODE_STATUS, type EngineNodeStatus } from "../../constants/nodeStatus";
 import { NODE_LEASE_SECONDS } from "../../constants/leases";
 import { NodeAttemptRegistry } from "../nodeAttemptRegistry";
 import { ContractPipeline } from "../contractPipeline";
-import { OutputContractError } from "../../errors/outputContractError";
-import { EVENT_KIND, RUN_STATUS } from "../../constants/vocabulary";
+import { RUN_STATUS } from "../../constants/vocabulary";
 import { isClaimKey, resolveToStatus, sqlMarks } from "./utils/transitionLookup";
 import { supersededOrConflict } from "./utils/supersededOrConflict";
 import { generateCapabilityToken } from "./utils/capabilityToken";
@@ -201,34 +200,6 @@ export class TransitionAuthority {
   }
 
   /**
-   * Apply a transition to every node of a flow in the row's from-set (the
-   * split runtime's bulk unit skip; Invariant 7 — one attempt-fenced CAS over
-   * the whole from-set). Returns the affected node keys for the caller's
-   * trail. Never announces per node (the feed never showed the bulk skip).
-   */
-  async applyFlowScope(flowId: string, key: TransitionKey): Promise<string[]> {
-    const to = resolveToStatus(key);
-    if (isClaimKey(key)) {
-      throw new Error(`transition "${key}" targets running — claim it instead`);
-    }
-    const row = TRANSITION_TABLE[key];
-    const affected = await this.database.prisma.$queryRawUnsafe<{ id: string; node_key: string }[]>(
-      `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, wait_until=NULL, updated_at=$2
-       WHERE flow_id=$3 AND status IN (${sqlMarks(row.from, 4)})
-       RETURNING id, node_key AS "node_key"`,
-      to,
-      this.database.now(),
-      flowId,
-      ...row.from,
-    );
-    for (const n of affected) {
-      this.attempts.clear(n.id);
-      this.record(flowId, n.node_key, key, to);
-    }
-    return affected.map((n) => n.node_key);
-  }
-
-  /**
    * Attempt-fenced transition by node id (Invariants 7/11 — fences on the
    * attempt token AND the from-set, so a superseded attempt never reverts a
    * newer one; a chat turn's revert to its pre-claim status, plan retry
@@ -319,75 +290,6 @@ export class TransitionAuthority {
   }
 
   /**
-   * Publish a fan-out/split aggregate terminal by (flow, nodeKey)
-   * (Invariants 7/11 — the aggregate CAS: the three-way attempt guard + the
-   * from-set in ONE conditional UPDATE inside the caller's transaction).
-   *
-   * Fence semantics (CR-009 + the finishSplit overwrite bug, both fixed):
-   *  - a bare caller (no captured attempt) may only publish a `running`
-   *    consumer — one aggregate per run; a published terminal is final;
-   *  - the runtime managers (split join / fan-out rollup) pass the attempt
-   *    token captured at expand: a `running` row must match it (a user's
-   *    re-claim refuses the stale aggregate), while the aggregate's own
-   *    held/failed states (attempt cleared by its own earlier publish)
-   *    republish — the per-unit approve/retry actions depend on that.
-   */
-  async publishAggregate(
-    flowId: string,
-    nodeKey: string,
-    key: "fanoutOutcome" | "splitOutcome" | "subflowOutcome",
-    outcome: { status: EngineNodeStatus; output: Record<string, unknown>; detail?: string; attemptId?: string | null },
-    tx?: QueryExecutor,
-  ): Promise<boolean> {
-    const to = resolveToStatus(key, outcome.status);
-    const row = TRANSITION_TABLE[key];
-    // step 04: the seam closes the aggregates too — an aggregate that misses
-    // its def's declared aggregate contract (capabilities fanout/splitOutput,
-    // the generic defaults otherwise) is never written: the refusal maps to
-    // the typed `output_contract_violation` event + the failed terminal right
-    // here (the authority owns status writes), and the caller sees `false` —
-    // it does not advance the flow on unvalidated data.
-    if (this.contracts && this.defs) {
-      const def = await this.defs.defOf(flowId, nodeKey);
-      if (def) {
-        try {
-          this.contracts.validateAggregateOutput(key, def, outcome.output);
-        } catch (e: unknown) {
-          if (!(e instanceof OutputContractError)) throw e;
-          await this.failContractViolation(flowId, nodeKey, e.issues);
-          return false;
-        }
-      }
-    }
-    const fence = outcome.attemptId != null;
-    const attemptGuard = fence
-      ? ` AND (status <> '${NODE_STATUS.RUNNING}' OR attempt_id IS NULL OR attempt_id = $6)`
-      : ` AND status = '${NODE_STATUS.RUNNING}'`;
-    const params: unknown[] = [
-      to,
-      JSON.stringify(outcome.output),
-      this.database.now(),
-      flowId,
-      nodeKey,
-      ...(fence ? [outcome.attemptId] : []),
-      ...row.from,
-    ];
-    const client = tx ?? this.database.prisma;
-    const applied = (await client.$queryRawUnsafe<{ id: string }[]>(
-      `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, updated_at=$3
-       WHERE flow_id=$4 AND node_key=$5${attemptGuard} AND status IN (${sqlMarks(row.from, fence ? 7 : 6)})
-       RETURNING id`,
-      ...params,
-    ))[0];
-    if (!applied) return false;
-    this.attempts.clear(applied.id);
-    await this.clearRunTokens(applied.id, client);
-    const record = this.record(flowId, nodeKey, key, to);
-    await this.events.announcedTransition(record, outcome.detail, tx);
-    return true;
-  }
-
-  /**
    * Fail a node whose fire-and-forget run errored (`bg` catch / stage catch):
    * `running → failed` with the attempt cleared, silent when the node already
    * moved on — the caller's error event carries the failure detail.
@@ -403,22 +305,6 @@ export class TransitionAuthority {
       where: { nodeId, status: RUN_STATUS.RUNNING },
       data: { apiToken: null, updatedAt: this.database.now() },
     });
-  }
-
-  /**
-   * The typed terminal for an aggregate that violated its contract (step 04 —
-   * the old swallow-and-publish escape): a typed
-   * `output_contract_violation` event carrying the per-path violations, then
-   * the failed terminal (no output publish, no advance — the downstream never
-   * consumes unvalidated data). Retriable like any other failed node.
-   */
-  private async failContractViolation(flowId: string, nodeKey: string, issues: readonly string[]): Promise<void> {
-    const message = `${nodeKey}: output contract violation — ${issues[0] ?? "the output did not satisfy its schema"}`;
-    await this.events.emit(flowId, nodeKey, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, {
-      nodeKey,
-      issues: [...issues],
-    });
-    await this.failFromRunning(flowId, nodeKey);
   }
 
   private record(

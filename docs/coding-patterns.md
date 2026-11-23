@@ -49,7 +49,7 @@ lib/<domain>/*-store.ts     SQL for one table family, reads through lib/db/rows.
 lib/db                   connection, transaction(), schema, row mappers
 
 lib/engine/nodes/**      node kinds -> NodeSupport (the only node-side persistence seam)
-lib/engine/runtime/**    orchestrators (poller, reconciler, fan-out, split) -> stores
+lib/engine/runtime/**    orchestrators (poller, reconciler) -> stores
 ```
 
 - Routes and loaders never run SQL and never hold domain logic. If a route and a loader need the same payload, it comes from one service method.
@@ -239,11 +239,10 @@ Every node kind declares what it needs and what it publishes
   their needs through the template node's `input_map` targets, validated at
   the same seam (a mapped expression resolving to nothing fails loudly).
 - **Stage end — `outputSchema`**: the terminal write validates the published
-  output; a fan-out/split aggregate validates against the def's
-  `fanoutOutput`/`splitOutput` capability. A miss is a typed
-  `OutputContractError` + an `output_contract_violation` event — the node
-  fails, nothing unvalidated is ever published. Failed/skipped terminals are
-  exempt (the violation detail travels in the event, not the output column).
+  output. A miss is a typed `OutputContractError` + an `output_contract_violation`
+  event — the node fails, nothing unvalidated is ever published. Failed/skipped
+  terminals are exempt (the violation detail travels in the event, not the
+  output column).
 - **Declarative configs author contracts in Zod**; `z.toJSONSchema()` produces
   the agent-facing directive, and raw JSON Schema configs convert at the
   boundary via `zod-from-json-schema` (`lib/engine/templates/jsonSchemaToZod.ts`).
@@ -268,9 +267,9 @@ Every node kind declares what it needs and what it publishes
 - **Composition-root rule (decision Q9).** Services are constructed in one of three composition roots in `lib/composition/` — never as ad-hoc globalThis pins:
   - **Request container** (`container.ts` → `createContainer(prisma)`): stateless, DB-fenced services. Routes, loaders and server components get services from here.
   - **Engine wiring** (`container.ts` → `engineParts`): the engine cluster's collaborators, wired once and exported as a plain module const. Every part is stateless or DB-fenced, so per-module-graph copies cannot disagree.
-  - **Process-services container** (`processServices.ts` → `pinnedProcessService(key, create)`): the ONLY home for genuinely process-bound in-memory state — run handles, mutexes, live-feed buffers, coalescing maps whose per-module-graph copies would diverge (e.g. `cursorAgent`, `localAgent`, `worktrees`, `mergeArena`, `worktreeManager`, `liveTaskFeed`). The defining module pins its own export, keeping the import graph unchanged. Never register a stateless service here.
+  - **Process-services container** (`processServices.ts` → `pinnedProcessService(key, create)`): the ONLY home for genuinely process-bound in-memory state — run handles, mutexes, live-feed buffers, coalescing maps whose per-module-graph copies would diverge (e.g. `cursorAgent`, `localAgent`, `worktrees`, `worktreeManager`, `liveTaskFeed`). The defining module pins its own export, keeping the import graph unchanged. Never register a stateless service here.
 - The DB client (`lib/db/prismaClient.ts`) is the only other process-pinned service (its connection pool must survive HMR, pinned inline under `Symbol.for("devflow.singleton.prisma")`). The arch test `tests/architecture/noProcessSingletonOutsideDb.test.ts` enforces that nothing else pins process state.
-- In-memory state is a cache, never the source of truth. Anything that must survive a restart (wait deadlines, merge state) is persisted, and the poller re-arms it on start.
+- In-memory state is a cache, never the source of truth. Anything that must survive a restart (wait deadlines, job leases) is persisted, and the poller re-arms it on start.
 - Maps are bounded (size cap or TTL sweep) and pruned when a flow is deleted or finishes.
 - Locks are keyed by the resource they protect. If the directory is per parent flow, the lock is per parent flow.
 
@@ -317,9 +316,9 @@ lib/engine/nodes/kinds/<kind>/
 (`lib/engine/runtime/effects/`, Invariant 8).
 
 - **Register `NodeEffects` at engine boot** — the FlowEngine constructor's
-  registry dispatch, keyed by `(defKey, lifecycle)` over the five declared
-  lifecycles (`afterSuccess | afterFailure | afterApproval |
-  onChildTerminal | loopReentry`, `constants/effectLifecycles.ts`):
+  registry dispatch, keyed by `(defKey, lifecycle)` over the four declared
+  lifecycles (`afterSuccess | afterFailure | afterApproval | loopReentry`,
+  `constants/effectLifecycles.ts`):
 
   ```ts
   // a runtime or kind module registers its own post-finish behavior
@@ -329,17 +328,16 @@ lib/engine/nodes/kinds/<kind>/
   ```
 
 - **Implementations stay in their owning module** (`sdlcEffects.ts` over the
-  SDLC chain, `fanoutEffects.ts` / `splitEffects.ts` over the runtimes); the
-  registry never parks sequencing logic. The fan-out/split child-terminal
-  notifications register under the runtime wildcard key (`EFFECT_KEY_ANY`) —
-  fan-out/split children can run any node kind, so exact-key registration
-  would miss them; relevance is decided by the runtime's own linkage lookup.
+  SDLC chain); the registry never parks sequencing logic. Declarative effects
+  register under the wildcard key (`EFFECT_KEY_ANY`) and decide relevance
+  themselves from the node's config; built-in kinds register under their
+  concrete defKey.
 - **Dispatch is centralized**: the StageRunner's `postTerminal` runs
-  `onChildTerminal`, then `afterSuccess` → `loopReentry` → falls through to
-  the default edge walk; `afterFailure` never advances; the approval door
-  dispatches `afterApproval` on a won approve. Never add a sequencing call
-  site — register an effect instead. Unclaimed lifecycles fall through to the
-  template's edge walk (the edges stay the stage-ordering data).
+  `afterSuccess` → `loopReentry` → falls through to the default edge walk;
+  `afterFailure` never advances; the approval door dispatches `afterApproval`
+  on a won approve. Never add a sequencing call site — register an effect
+  instead. Unclaimed lifecycles fall through to the template's edge walk
+  (the edges stay the stage-ordering data).
 - **Effect-driven stage starts claim through the TriggerGateway**, so a lost
   claim emits the same typed skip event a user click would. Never add a
   dispatch path that skips a claim.

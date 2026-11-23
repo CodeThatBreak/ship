@@ -11,15 +11,9 @@ const planStepSchema = z.object({
   branch: z.string().nullable().optional(),
 });
 
-const splitUnitFields = {
-  unitKey: z.string().min(1),
-  consumerNodeKey: z.string().min(1).optional(),
-};
-
 export const flowActionBodySchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal(FLOW_ACTION.APPROVE_PLAN),
-    executionOverride: z.enum(["whole", "steps"]).optional(),
   }),
   z.object({
     action: z.literal(FLOW_ACTION.UPDATE_PLAN_STEPS),
@@ -76,34 +70,6 @@ export const flowActionBodySchema = z.discriminatedUnion("action", [
     nodeKey: z.string().min(1),
     chosen: z.array(z.string()),
     rationale: z.string().optional(),
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.APPROVE_FANOUT_STEP),
-    stepId: z.string().min(1),
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.RETRY_FANOUT_STEP),
-    stepId: z.string().min(1),
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.SKIP_FANOUT_STEP),
-    stepId: z.string().min(1),
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.SKIP_SPLIT_UNIT),
-    ...splitUnitFields,
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.RETRY_SPLIT_UNIT),
-    ...splitUnitFields,
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.APPROVE_SPLIT_UNIT),
-    ...splitUnitFields,
-  }),
-  z.object({
-    action: z.literal(FLOW_ACTION.CANCEL_SPLIT_UNIT),
-    ...splitUnitFields,
   }),
   z.object({
     action: z.literal(FLOW_ACTION.REFRESH_DIFF),

@@ -11,7 +11,6 @@ import type { FlowData, Node } from '@/types/flow';
 import { useFlowMutation } from '../mutations/useFlowMutation';
 import { useFlowData } from './hooks/useFlowData';
 import { useFlowEvents } from './hooks/useFlowEvents';
-import { fanoutProgressOf } from './fanoutProgress';
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page
@@ -48,12 +47,11 @@ export default function FlowCockpit({
   // nodes arrive pre-sorted; the user picks from there
   //
   // empty `selected` follows the running node (derived from node statuses —
-  // fan-out may run several at once, the first in graph order wins); once the
-  // user clicks a node, `selected` holds that key so polling doesn't yank the
-  // view back to whatever is running
+  // the first in graph order wins); once the user clicks a node, `selected`
+  // holds that key so polling doesn't yank the view back to whatever is running
   const [selected, setSelected] = useState('');
   const resolvedSelectedKey = resolveCockpitSelectedKey(selected, flow.nodes);
-  // every running node key — the graph highlights all of them (fan-out)
+  // every running node key — the graph highlights all of them
   const runningNodeKeys = useMemo(() => runningNodeKeysOf(flow.nodes), [flow.nodes]);
 
   const node = useMemo(
@@ -84,10 +82,6 @@ export default function FlowCockpit({
     flowAction.reset();
   }, [flowAction]);
 
-  // plan fan-out: per-node step rollup for the graph subtitle (plain compute —
-  // it derives straight from the attached plan-step state)
-  const fanout = useMemo(() => fanoutProgressOf(flow), [flow]);
-
   return (
     <main className="flex flex-col h-screen">
       {/* header */}
@@ -115,7 +109,6 @@ export default function FlowCockpit({
           selected={node?.nodeKey ?? ''}
           onSelect={setSelected}
           runningKeys={runningNodeKeys}
-          fanout={fanout}
         />
       </div>
 

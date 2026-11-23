@@ -2,20 +2,15 @@
 import type { Node } from "@/types/flow";
 import type { GraphDef } from "../hooks/useGraphDef";
 import { cn } from "@/lib/utils";
-import { FANOUT_STATE, FLOW_STATUS } from "@/constants/flow";
+import { FLOW_STATUS } from "@/constants/flow";
 import { iconFor } from "./icons";
 import type { NodePosition } from "./GraphEdges";
 import { H, STATUS, W, statusLabel } from "./graphLayout";
 
-/** Plan fan-out progress per node key — the card's subtitle (see `WorkflowGraph`). */
-export type { FanoutProgress } from "../cockpit/fanoutProgress";
-import type { FanoutProgress } from "../cockpit/fanoutProgress";
-
 /**
  * One node card on the canvas (§2.2 presentational subcomponent): position,
- * border/text colors from the run state (possibly overridden by the fan-out
- * aggregate), the resolved template icon, label, progress subtitle and the
- * published-variables footer.
+ * border/text colors from the run state, the resolved template icon, label,
+ * progress subtitle and the published-variables footer.
  */
 export function WorkflowNodeCard({
   node,
@@ -23,7 +18,6 @@ export function WorkflowNodeCard({
   position,
   selected,
   running,
-  fanout,
   onSelect,
 }: {
   node: Node;
@@ -31,7 +25,6 @@ export function WorkflowNodeCard({
   position: NodePosition;
   selected: boolean;
   running: boolean;
-  fanout?: FanoutProgress;
   onSelect: (key: string) => void;
 }) {
   // the node row's own label (template snapshot) wins; the graph meta
@@ -42,16 +35,7 @@ export function WorkflowNodeCard({
   // pickers offer (start nodes: their contract; agents: their schema)
   const outputs = meta[node.nodeKey]?.outputs ?? [];
   const isRunning = running || node.status === FLOW_STATUS.RUNNING;
-  const st = STATUS[isRunning ? FLOW_STATUS.RUNNING : node.status] ?? STATUS.pending;
-  // aggregate child states override the card colors while the fan-out
-  // runs — the orchestrator row itself holds `running` until all children
-  // resolve, so red/warning/success must come from the children (Phase 4)
-  const cardColor = fanout
-    ? (fanout.state === FANOUT_STATE.FAILED ? STATUS.failed
-      : fanout.state === FANOUT_STATE.AWAITING ? STATUS.awaiting_approval
-      : fanout.state === FANOUT_STATE.IN_FLIGHT ? STATUS.running
-      : STATUS.approved)
-    : st;
+  const cardColor = STATUS[isRunning ? FLOW_STATUS.RUNNING : node.status] ?? STATUS.pending;
   return (
     <button
       type="button"
@@ -90,11 +74,7 @@ export function WorkflowNodeCard({
                 : cardColor.text,
           )}
         >
-          {/* plan fan-out: the per-node step rollup as the subtitle
-              (`steps 3/8 · building`, `· $0.42` when the children cost) */}
-          {fanout
-            ? `steps ${fanout.done}/${fanout.total}${fanout.running ? ` · ${fanout.running}` : ""}${fanout.costCents > 0 ? ` · $${(fanout.costCents / 100).toFixed(2)}` : ""}`
-            : statusLabel(node.status, isRunning)}
+          {statusLabel(node.status, isRunning)}
           {node.artifacts.length > 0 &&
             ` · v${Math.max(...node.artifacts.map((a) => a.version))}`}
         </div>

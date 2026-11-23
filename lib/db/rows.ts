@@ -26,7 +26,6 @@ import {
   NODE_STATUSES,
   PLAN_STEP_STATUSES,
   RUN_STATUSES,
-  STEP_MERGE_STATUSES,
 } from './constants/rowStatuses';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -112,9 +111,7 @@ export const FlowRow = z.object({
   triggerPayload: jsonCol(z.record(z.string(), z.unknown())),
   /** git worktree dir for local runs; null = runs in the registered checkout */
   worktreeDir: z.string().nullable(),
-  /** step sub-flows (plan fan-out): set on child flows — the parent's flow id */
-  parentFlowId: z.string().nullable(),
-  /** sdlc | step (plan fan-out child) | split */
+  /** how the flow instance was created */
   kind: z.enum(FLOW_KINDS).nullable().default('sdlc'),
   createdAt: isoTs,
   updatedAt: isoTs,
@@ -220,8 +217,6 @@ export const PlanStepRow = z.object({
   origin: z.string(),
   /** completedBy: manual | build | merge | skipped | null */
   completedBy: z.string().nullable(),
-  /** step ⇄ sub-flow linkage (plan fan-out): the child flow building this step */
-  subFlowId: z.string().nullable(),
   createdAt: isoTs,
   updatedAt: isoTs,
 });
@@ -426,20 +421,3 @@ export const HookDeliveryRow = z.object({
 });
 export type HookDeliveryRow = z.infer<typeof HookDeliveryRow>;
 
-// ── step_merges (plan fan-out) ───────────────────────────────────────────────
-// Durable merge-back record per code child: written BEFORE the git merge runs,
-// updated after, so restarts/reconcile can resume or flag. NULL `branch` ⇒
-// non-code children create no rows.
-export const StepMergeRow = z.object({
-  id: z.string(),
-  flowId: z.string(),
-  parentFlowId: z.string(),
-  parentNode: z.string(),
-  branch: z.string().nullable(),
-  status: z.enum(STEP_MERGE_STATUSES),
-  attempts: z.number(),
-  error: z.string().nullable(),
-  createdAt: isoTs,
-  updatedAt: isoTs,
-});
-export type StepMergeRow = z.infer<typeof StepMergeRow>;

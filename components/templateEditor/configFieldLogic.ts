@@ -67,19 +67,13 @@ export const secretRefOptions = (
  *  the declarative Config tab. The core knobs (mode, prompt, model, base_ref,
  *  effects, output and output_schema — the latter right under output once json
  *  is selected) stay flat; everything the author reaches for less often —
- *  tools/retries, secrets, MCP sources, fan-out and split — is grouped. Other
- *  declarative kinds keep their flat form. */
+ *  tools/retries, secrets and MCP sources — is grouped. Other declarative
+ *  kinds keep their flat form. */
 export const advancedConfigFieldKeys = new Set([
   "retry_budget",
   "agent_tools",
   "secret_refs",
   "mcp_sources",
-  "fanout_mode",
-  "fanout_child",
-  "fanout_parallel_max",
-  "split_consume",
-  "split_parallel_max",
-  "split",
 ]);
 
 /** True only for the agent kind's advanced knobs — used to partition the

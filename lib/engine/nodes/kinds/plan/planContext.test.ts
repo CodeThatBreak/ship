@@ -48,7 +48,6 @@ const row: PlanStepRow = {
   status: 'pending',
   origin: 'agent',
   completedBy: null,
-  subFlowId: null,
   createdAt: '',
   updatedAt: '',
 };

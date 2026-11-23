@@ -28,7 +28,6 @@ const ctx = {
     status: "active",
     executionMode: "local",
     mrBranch: null,
-    parentFlowId: null,
     createdAt: now(),
     updatedAt: now(),
   },

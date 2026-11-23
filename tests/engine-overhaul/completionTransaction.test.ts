@@ -12,10 +12,9 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
-import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
+import { testAll, testGet } from "@/tests/helpers/rawTestDb";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import type { Prisma } from "@prisma/client";
-import type { StepRollup } from "@/lib/engine/runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 import { expectTransitionsDeclared } from "../helpers/transitionLogAssert";
@@ -26,8 +25,6 @@ const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
 const { nodeRegistry } = await import("@/lib/engine/nodes/registry");
-const { stepFlows } = await import("@/lib/engine/runtime/fanout/stepFlowManager");
-const { planSteps } = await import("@/lib/engine/runtime/planStepStore");
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
@@ -205,68 +202,5 @@ describe("completion batch transaction (step 06, Invariant 7)", () => {
     expect(await artifactsOf(flowId)).toEqual([]);
     expect(await harness.nodeStatus(flowId, "triage")).toBe("running");
     expect(await eventsOf(flowId)).toEqual(eventsBefore);
-  });
-
-  test("a crash inside the fan-out rollup batch leaves the check-off unapplied (no partial rollup)", async () => {
-    // parent: one fan-out consumer node (declarative — no mergeBack, so the
-    // rollup batch is the check-offs + the aggregate terminal's run-up)
-    const flowId = await harness.seedInlineFlow(
-      [{ key: "build", def: "nt_st_triage", config: { mode: "plan", output: "json", prompt: "triage" } }],
-      [],
-    );
-    await harness.claimNode(flowId, "build", "runFromPending"); // the rollup publishes from `running`
-
-    // a resolved step child linked to a pending plan step
-    const childTpl = await templateStore.create(
-      {
-        name: "ovh-ctx-rollup-child",
-        trigger: { type: "manual" },
-        nodes: [{ key: "work", nodeTemplateId: "nt_st_triage", trigger: { type: "auto" } }],
-        edges: [],
-      },
-      { skipLint: true },
-    );
-    const childFlowId = await flowEngine.createStepChild(flowId, childTpl, "step child", {
-      plan: { title: "OVH-1: overhaul harness task", summary: "overhaul harness task" },
-      step: { id: "s1", title: "Step one", detail: null, files: [] },
-      siblings: [],
-      parentNodeKey: "build",
-      workNodeKey: "work",
-    }, { branch: null });
-    await harness.setNodeOutputForFixture(childFlowId, "work", "done", { summary: "child work" });
-    // fixture setup ONLY: link the pending plan step to its child flow (the
-    // planSteps store has no sub_flow_id setter — the expansion writes it raw)
-    await testRun(
-      `INSERT INTO plan_steps (id, flow_id, position, title, detail, files, status, origin, sub_flow_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending','agent',$7,$8,$9)`,
-      "step_ctx_1", flowId, 0, "Step one", null, "[]", childFlowId, db.now(), db.now(),
-    );
-
-    // the rollup moved into the fan-out runtime's StepRollup (step 07) —
-    // reached through the bound facade's rollup member
-    const rollup = (stepFlows as unknown as { rollup: StepRollup }).rollup;
-    // the check-off rides the Prisma model API through the tx — crashing ON
-    // it must roll the WHOLE batch back (no partial rollup)
-    injectTransactionFault(/planStep\.updateMany/);
-    await expect(rollup.checkRollup(flowId, "build")).rejects.toThrow(/simulated crash/);
-
-    // nothing partial: the step is still pending, the parent still running,
-    // no aggregate output was published
-    const step = (await planSteps.list(flowId)).find((s) => s.id === "step_ctx_1");
-    expect(step?.status).toBe("pending");
-    expect(step?.completedBy ?? null).toBeNull();
-    expect(await harness.nodeStatus(flowId, "build")).toBe("running");
-    expect(await harness.nodeOutput(flowId, "build")).toBeNull();
-
-    // the rollup re-runs (idempotent hooks) and lands the whole batch
-    (db as { transaction: TransactionFn }).transaction = realTransaction;
-    await rollup.checkRollup(flowId, "build");
-    const done = (await planSteps.list(flowId)).find((s) => s.id === "step_ctx_1");
-    expect(done?.status).toBe("done");
-    expect(done?.completedBy).toBe("child");
-    expect(await harness.nodeStatus(flowId, "build")).toBe("done");
-    const aggregate = await harness.nodeOutput(flowId, "build");
-    expect((aggregate?.steps as { id: string; status: string }[])[0]).toMatchObject({ id: "step_ctx_1", status: "done" });
-    expectTransitionsDeclared(flowEngine.transitions, flowId);
   });
 });

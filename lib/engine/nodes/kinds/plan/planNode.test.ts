@@ -40,8 +40,7 @@ assignTestDatabase();
 const { db } = await import('../../../../db/app');
 
 beforeAll(resetTestDatabase);
-type PlanNodeInstance = InstanceType<typeof PlanNode>;
-import type { PlanBranch, PlanMeta, PlanStep } from './schema';
+import type { PlanMeta, PlanStep } from './schema';
 import type { FlowCtx, FlowContextHelper } from '../../shared/nodeSharedExports';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import type { AgentRunner } from '../../../harness/harnessExports';
@@ -315,109 +314,6 @@ describe('PlanResponse — branch dependency DAG (Phase 6)', () => {
   });
 });
 
-describe('PlanNode — the split source port (Phase 6: branches are the units)', () => {
-  /** A stub support whose latest plan artifact is `row` and whose plan node
-   *  config snapshot carries `knob` — everything else these paths touch is
-   *  never called. */
-  const planNodeWith = (
-    knob: string,
-    row: { id: string; version: number; content: string; meta: unknown } | null
-  ): PlanNodeInstance =>
-    new PlanNode(
-      {
-        latestArtifact: async () => row,
-        nodeByKey: async (flowId: string, key: string) =>
-          ({
-            id: 'node-1',
-            flowId,
-            nodeKey: key,
-            config: JSON.stringify({ execution_default: knob }),
-          }) as unknown as NodeRow,
-      } as unknown as NodeSupport,
-      {} as unknown as AgentRunner,
-      {} as unknown as FlowContextHelper
-    );
-
-  const ctx = { flow: { id: 'flow-1' } } as unknown as FlowCtx;
-
-  const branches: PlanBranch[] = [
-    { name: 'auth', title: 'Auth', scope: 'logins', files: ['a.ts'], steps: [], dependsOn: [] },
-    {
-      name: 'billing',
-      title: 'Billing',
-      scope: 'invoices',
-      files: ['b.ts'],
-      steps: [],
-      dependsOn: ['auth'],
-      subPlan: { prompt: 'do billing' },
-      markdown: '## billing',
-    },
-  ];
-  const planRow = (meta: Record<string, unknown>) => ({
-    id: 'art_1',
-    version: 3,
-    content: '# Plan document',
-    meta: {
-      steps: [step('s1', 'Auth service', 'auth')],
-      ...meta,
-    },
-  });
-
-  it('splitUnits: one unit per branch — key/title/dependsOn, target build, item carries name + plan', async () => {
-    const units = await planNodeWith('whole', planRow({ branches })).splitUnits(ctx);
-    if (!units) throw new Error('expected split units');
-    expect(units.map(u => u.key)).toEqual(['auth', 'billing']);
-    expect(units.map(u => u.title)).toEqual(['Auth', 'Billing']);
-    expect(units[0].dependsOn).toEqual([]);
-    expect(units[1].dependsOn).toEqual(['auth']);
-    expect(units.every(u => u.target === 'build')).toBe(true);
-    const item = units[1].item as {
-      name: string;
-      title: string;
-      scope: string;
-      files: string[];
-      subPlan: { prompt: string } | null;
-      markdown: string | null;
-      plan: string;
-    };
-    expect(item.name).toBe('billing');
-    expect(item.plan).toBe('# Plan document');
-    expect(item.subPlan?.prompt).toBe('do billing');
-    expect(item.markdown).toBe('## billing');
-  });
-
-  it('splitUnits: null for a branch-less plan', async () => {
-    expect(await planNodeWith('whole', planRow({ branches: [] })).splitUnits(ctx)).toBeNull();
-  });
-
-  it('splitUnits: null with no plan artifact', async () => {
-    expect(await planNodeWith('whole', null).splitUnits(ctx)).toBeNull();
-  });
-
-  it('splitResolution: knob whole → whole', async () => {
-    expect(await planNodeWith('whole', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
-  });
-
-  it('splitResolution: a legacy "steps" knob config fails loudly (the value is retired from the knob domain)', async () => {
-    await expect(
-      planNodeWith('steps', planRow({ branches, execution: 'whole' })).splitResolution(ctx)
-    ).rejects.toThrow(/invalid config for plan\.execution_default/);
-  });
-
-  it('splitResolution: follow + published steps → per-unit', async () => {
-    expect(await planNodeWith('follow', planRow({ branches, execution: 'steps' })).splitResolution(ctx)).toBe('per-unit');
-  });
-
-  it('splitResolution: follow + published whole → whole', async () => {
-    expect(await planNodeWith('follow', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
-  });
-
-  it('splitResolution: follow with nothing published / no artifact → whole', async () => {
-    expect(await planNodeWith('follow', planRow({ branches })).splitResolution(ctx)).toBe('whole');
-    expect(await planNodeWith('follow', null).splitResolution(ctx)).toBe('whole');
-  });
-});
-
 describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-refine.md §3a–c)', () => {
   // real rows for `plan_steps` FKs (the checklist sync writes live rows in the
   // shared test DB — see chatNode's saveArtifact); `db` resolves above with the
@@ -600,7 +496,6 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     const meta = observ.savedMetas[0] as Record<string, unknown>;
     expect(meta.feedback).toBe('move step 2 below step 1');
     expect(meta.refinedFrom).toEqual({ version: 2, source: 'chat' });
-    expect(meta.executionSource).toBe('knob');
     // the node row landed exactly like a normal refine's outcome
     const art = observ.savedArts[0];
     expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);

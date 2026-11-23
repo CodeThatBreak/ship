@@ -6,7 +6,6 @@ import { NextResponse } from "next/server";
 import { flowEngine } from "../../../../../lib/engine/flowEngine";
 import { diffRefresh } from "../../../../../lib/engine/flow/diffRefresh";
 import { EFFECT_VERB } from "../../../../../lib/engine/runtime/effects/constants/effectVerbs";
-import { splitManager } from "../../../../../lib/engine/runtime/split/splitManager";
 import type { TriggerResult } from "../../../../../lib/engine/runtime/triggers/types/triggerGateway";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +14,7 @@ export const runtime = "nodejs";
 const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<TriggerResult | undefined> => {
   switch (body.action) {
     case FLOW_ACTION.APPROVE_PLAN:
-      return flowEngine.approvals.approvePlan(flowId, body.executionOverride);
+      return flowEngine.approvals.approvePlan(flowId);
     case FLOW_ACTION.UPDATE_PLAN_STEPS:
       await flowEngine.planStepEdits.updatePlanSteps(flowId, body.steps);
       return undefined;
@@ -48,27 +47,6 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<Tri
       return undefined;
     case FLOW_ACTION.CHOOSE_NODE:
       await flowEngine.approvals.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
-      return undefined;
-    case FLOW_ACTION.APPROVE_FANOUT_STEP:
-      await flowEngine.approveFanoutStep(flowId, body.stepId);
-      return undefined;
-    case FLOW_ACTION.RETRY_FANOUT_STEP:
-      await flowEngine.retryFanoutStep(flowId, body.stepId);
-      return undefined;
-    case FLOW_ACTION.SKIP_FANOUT_STEP:
-      await flowEngine.skipFanoutStep(flowId, body.stepId);
-      return undefined;
-    case FLOW_ACTION.SKIP_SPLIT_UNIT:
-      await splitManager.skipUnit(flowId, body.consumerNodeKey, body.unitKey);
-      return undefined;
-    case FLOW_ACTION.RETRY_SPLIT_UNIT:
-      await splitManager.retryUnit(flowId, body.consumerNodeKey, body.unitKey);
-      return undefined;
-    case FLOW_ACTION.APPROVE_SPLIT_UNIT:
-      await splitManager.approveUnit(flowId, body.consumerNodeKey, body.unitKey);
-      return undefined;
-    case FLOW_ACTION.CANCEL_SPLIT_UNIT:
-      await splitManager.cancelUnit(flowId, body.consumerNodeKey, body.unitKey);
       return undefined;
     case FLOW_ACTION.REFRESH_DIFF:
       await diffRefresh.refresh(flowId, body.artifactId);

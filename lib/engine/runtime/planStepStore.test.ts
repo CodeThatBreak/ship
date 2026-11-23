@@ -5,7 +5,6 @@ import { testRun } from "@/tests/helpers/rawTestDb";
 import { describe, expect, it } from "vitest";
 
 const { planSteps } = await import("./planStepStore");
-const { formatStepBuildContextPack } = await import("../nodes/kinds/build/schema");
 const { parsePlanArtifactMeta } = await import("../nodes/kinds/plan/schema");
 
 const now = () => new Date().toISOString();
@@ -23,12 +22,11 @@ const seedFlow = async (flowId: string) => {
     "P2",
   );
   await testRun(
-    `INSERT INTO flows (id, task_id, name, status, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    `INSERT INTO flows (id, task_id, name, status, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     flowId,
     taskId,
     "flow",
     "active",
-    null,
     "sdlc",
     now(),
     now(),
@@ -136,52 +134,12 @@ describe("PlanStepStore.replace (Task 27)", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("keeps started steps at their editor index instead of moving them to the top", async () => {
+  it("keeps matched steps at their editor index instead of moving them to the top", async () => {
     const flowId = "flw_replace_order";
-    const parentId = flowId;
-    const childId = "flw_child_started";
-    await seedFlow(parentId);
-    void testRun(
-      `INSERT INTO flows (id, task_id, name, status, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      childId,
-      `task_${parentId}`,
-      "child",
-      "active",
-      parentId,
-      "step",
-      now(),
-      now(),
-    );
-    void testRun(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      "node_child",
-      childId,
-      "build",
-      "build",
-      "running",
-      now(),
-      now(),
-    );
+    await seedFlow(flowId);
 
     await insertStep({ id: "step_pending", flowId, title: "First", position: 0, metaId: "s1" });
-    void testRun(
-      `INSERT INTO plan_steps (id, flow_id, artifact_id, meta_id, position, title, detail, files, branch, status, origin, sub_flow_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14)`,
-      "step_started",
-      flowId,
-      null,
-      "s2",
-      1,
-      "Started",
-      null,
-      "[]",
-      null,
-      "pending",
-      "agent",
-      childId,
-      now(),
-      now(),
-    );
+    await insertStep({ id: "step_started", flowId, title: "Started", position: 1, metaId: "s2" });
     await insertStep({ id: "step_third", flowId, title: "Third", position: 2, metaId: "s3" });
 
     await planSteps.replace(
@@ -205,27 +163,12 @@ describe("PlanStepStore.replace (Task 27)", () => {
   });
 });
 
-describe("parsePlanArtifactMeta + step context pack (Task 27)", () => {
+describe("parsePlanArtifactMeta (Task 27)", () => {
   it("applies PlanBranch defaults (dependsOn) when reading artifact meta", () => {
     const meta = parsePlanArtifactMeta({
       steps: [{ title: "One", detail: "", files: [], branch: null }],
       branches: [{ name: "auth", title: "Auth", scope: "login" }],
     });
     expect(meta?.branches[0].dependsOn).toEqual([]);
-  });
-
-  it("includes sibling mergeStatus and summary in the context pack", () => {
-    const pack = formatStepBuildContextPack([
-      {
-        id: "s2",
-        title: "Billing",
-        files: ["b.ts"],
-        status: "building",
-        mergeStatus: "conflict",
-        summary: "needs rebase",
-      },
-    ]);
-    expect(pack).toContain("merge: conflict");
-    expect(pack).toContain("summary: needs rebase");
   });
 });

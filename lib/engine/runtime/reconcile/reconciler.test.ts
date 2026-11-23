@@ -2,8 +2,7 @@
  * Reconciler v2 — the `running` row of the matrix and the RecoveryDriver's
  * lease liveness (engine overhaul step 03, Invariant 3): lease-current nodes
  * are left alone, expired leases recover (or fail manually when nothing is
- * recoverable), and fan-out aggregates parked over active child flows are
- * recognized as alive from durable state — never from in-process handles.
+ * recoverable) — never based on in-process handles.
  */
 import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -83,22 +82,5 @@ describe("Reconciler running-state liveness", () => {
       `SELECT message FROM events WHERE flow_id=$1 AND type='error' AND message LIKE '%left running without an active run%'`,
       flowId);
     expect(event?.message).toContain("retry the node to continue");
-  });
-
-  it("a fan-out aggregate parked over active child flows is alive (durable evidence, no guessing)", async () => {
-    const flowId = "flw_rc_aggregate";
-    await seedFlow(flowId);
-    const nodeId = await seedNode(flowId, "build", "running");
-    await testRun(`UPDATE nodes SET lease_until = now() - interval '5 minutes' WHERE id=$1`, nodeId);
-    // the aggregate's children are still working — that is the liveness
-    await seedFlow("flw_rc_aggregate_child");
-    await testRun(
-      `UPDATE flows SET parent_flow_id=$1, kind='step' WHERE id='flw_rc_aggregate_child'`,
-      flowId);
-
-    await reconciler.reconcileFlow(flowId);
-
-    expect((await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId))?.status)
-      .toBe("running");
   });
 });

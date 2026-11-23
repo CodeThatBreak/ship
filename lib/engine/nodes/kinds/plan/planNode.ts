@@ -12,7 +12,6 @@ import {
   type NodePromptPreview,
   type PromptPreviewParams,
   type RunOutcome,
-  type SplitUnit,
 } from '../../shared/nodeSharedExports';
 import type { NodeCapabilities } from '../../shared/capabilities';
 import { NODE_KEYS } from '../../../constants/nodeKeys';
@@ -37,6 +36,7 @@ import { PlanAgentSessions } from './planAgentSessions';
 import { PlanTurnKind } from './constants/planTurn';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
+import { MAIN_PLAN_THREAD_TAB_ID } from './constants/planThread';
 import { AGENT_CONFIG_FIELDS } from './constants/config/planConfigExports';
 import { RETRYABLE_OUTPUT_ERRORS } from '../../shared/agentOutput/constants/agentOutput';
 import { PLAN_CHAT_LABEL, planValidationFailedEvent, planValidationRefusalReply } from './constants/refine';
@@ -45,22 +45,26 @@ import { resolvePlanTurnPreviousStatus } from './planRetryRevert';
 import { PlanStore } from './planStore';
 import { PlanContextBlocks } from './planContext';
 import { PlanPromptBuilder } from './planPrompt';
-import type { ExecutionKnob } from './types/executionKnob';
 import { PlanOutputContract } from './planContract';
-import { PlanSplitter } from './planSplit';
 
 import type { PlanRunArgs, ScopedRefine } from './types/planTypeExports';
 import { ValidationError } from '@/lib/errors';
+
+/** The branch thread a chat send targets — the main tab means an unthreaded whole-plan send. */
+const planThreadOf = (thread?: string | null): string | null => {
+  const trimmed = thread?.trim();
+  if (!trimmed || trimmed === MAIN_PLAN_THREAD_TAB_ID) return null;
+  return trimmed;
+};
 
 /**
  * The Plan node (the chat's first-class node): a thin orchestrator over its
  * plan-domain collaborators — {@link PlanStore} (data + publish),
  * {@link PlanContextBlocks} ({{context}} registry), {@link PlanPromptBuilder}
- * (whole/scoped prompts + run intent), {@link PlanOutputContract} (validation +
- * bounded retry + version publish) and {@link PlanSplitter} (the branch split
- * source port). The class owns the declarative surface (identity, config
- * knobs, capabilities, previews) and the run/recover wiring; all plan-domain
- * behavior lives in the collaborators.
+ * (whole/scoped prompts + run intent) and {@link PlanOutputContract}
+ * (validation + bounded retry + version publish). The class owns the
+ * declarative surface (identity, config knobs, capabilities, previews) and
+ * the run/recover wiring; all plan-domain behavior lives in the collaborators.
  *
  * The conversation surface is unified turns via {@link turn} (POST /chat).
  */
@@ -98,15 +102,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   override readonly configSchema = z.object({
     /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
     prompt_body: z.string().optional(),
-    /**
-     * Plan fan-out (§1 "who decides the mode"): the published execution
-     * resolution. `follow` = the PLANNER decides per plan version (unknown/
-     * missing ⇒ whole, never a parse failure); its "steps" choice fans the
-     * plan's branches out as one child flow per branch (overridable at
-     * approve). The value rides every plan version in
-     * `artifacts.meta.execution` (source: knob | planner | default | override).
-     */
-    execution_default: z.enum(['whole', 'follow']).default('whole'),
     /** ambient MCP servers for plan agent runs — defaults to ALL sources enabled */
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
   });
@@ -120,7 +115,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   private readonly context: PlanContextBlocks;
   private readonly prompt: PlanPromptBuilder;
   private readonly contract: PlanOutputContract;
-  private readonly splitter: PlanSplitter;
   private readonly sessions: PlanAgentSessions;
 
   constructor(
@@ -131,9 +125,8 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     super(support, runner, ctxHelper);
     this.store = new PlanStore(support);
     this.context = new PlanContextBlocks(support, this.store, ctxHelper);
-    this.prompt = new PlanPromptBuilder(ctxHelper, this.context, this.store, ctx => this.executionDefault(ctx));
-    this.contract = new PlanOutputContract(support, this.store, runner, ctx => this.executionDefault(ctx), this.label);
-    this.splitter = new PlanSplitter(this.store, ctx => this.executionDefault(ctx));
+    this.prompt = new PlanPromptBuilder(ctxHelper, this.context, this.store);
+    this.contract = new PlanOutputContract(support, this.store, runner, this.label);
     this.sessions = new PlanAgentSessions(support);
   }
 
@@ -157,7 +150,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     content: string,
     opts?: ChatTurnOpts
   ): Promise<string> {
-    const branch = PlanSplitter.getPlanThread(opts?.thread);
+    const branch = planThreadOf(opts?.thread);
     const config = this.parseRunConfig(await this.nodeConfig(ctx));
     const node = await this.node(ctx);
     const model = opts?.model ?? null;
@@ -387,17 +380,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     }
   }
 
-  // ── split source port — the plan's branches (the node makes the method
-  //    identity the engine's port check keys off; the logic is the splitter's) ─
-
-  override async splitUnits(ctx: FlowCtx): Promise<SplitUnit[] | null> {
-    return this.splitter.units(ctx);
-  }
-
-  override async splitResolution(ctx: FlowCtx): Promise<'whole' | 'per-unit' | null> {
-    return this.splitter.resolution(ctx);
-  }
-
   // ── prompt previews (used by the prompt route) ────────────────────────────
 
   /**
@@ -428,20 +410,5 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       { body: configBody }
     );
     return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm };
-  }
-
-  /**
-   * The plan node's `execution_default` knob (class ← app ← flow snapshot),
-   * resolved through the declared configSchema: the knob domain is
-   * whole|follow — a config outside it (the retired per-step "steps" value
-   * included) fails loudly via the typed config error instead of degrading.
-   */
-  private async executionDefault(ctx: FlowCtx): Promise<ExecutionKnob> {
-    const config = this.parseRunConfig(await this.nodeConfig(ctx));
-    const knob = config['execution_default'];
-    if (knob !== 'whole' && knob !== 'follow') {
-      throw new Error(`invalid config for ${this.key}.execution_default: expected "whole" | "follow", got ${JSON.stringify(knob)}`);
-    }
-    return knob;
   }
 }

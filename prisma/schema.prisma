@@ -28,8 +28,6 @@ enum FlowStatus {
 
 enum FlowKind {
   sdlc
-  step
-  split
 
   @@map("flow_kind")
 }
@@ -91,14 +89,11 @@ enum RunStatus {
   @@map("run_status")
 }
 
-// Invariant 7: kinds of durable, claimable background work (target-architecture §3).
-// `wait_fire` and `merge_back` are part of the declared vocabulary; their
-// dispatchers land with steps 03 (wait sweep) and 07 (merge-back coordinator).
+// Invariant 7: kinds of durable, claimable background work.
 enum JobKind {
   webhook_delivery
   schedule_fire
   wait_fire
-  merge_back
   cancel
   mr_create
 
@@ -112,16 +107,6 @@ enum JobStatus {
   failed
 
   @@map("job_status")
-}
-
-enum StepMergeStatus {
-  running
-  conflict
-  rejected
-  merged
-  failed
-
-  @@map("step_merge_status")
 }
 
 enum MessageRole {
@@ -189,7 +174,6 @@ model Flow {
   templateGraph   Json?     @map("template_graph")
   triggerPayload  Json?     @map("trigger_payload")
   worktreeDir     String?   @map("worktree_dir")
-  parentFlowId    String?   @map("parent_flow_id")
   kind            FlowKind  @default(sdlc)
   createdAt       DateTime  @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @map("updated_at") @db.Timestamptz
@@ -197,8 +181,6 @@ model Flow {
   task            Task       @relation(fields: [taskId], references: [id])
   repo            Repo?      @relation(fields: [repoId], references: [id])
   template        FlowTemplate? @relation(fields: [templateId], references: [id])
-  parentFlow      Flow?      @relation("StepFlows", fields: [parentFlowId], references: [id])
-  childFlows      Flow[]     @relation("StepFlows")
   nodes           Node[]
   artifacts       Artifact[]
   comments        Comment[]
@@ -208,11 +190,7 @@ model Flow {
   branches        Branch[]
   runs            Run[]
   hooks           Hook[]
-  parentMerges    StepMerge[] @relation("ParentMerges")
-  childMerges     StepMerge[] @relation("ChildMerges")
-  planStepSubFlows PlanStep[] @relation("SubFlowSteps")
 
-  @@index([parentFlowId], map: "idx_flows_parent")
   @@index([gitlabProjectId], map: "idx_flows_gitlab_project")
   @@index([status], map: "idx_flows_status")
   @@index([templateId], map: "idx_flows_template")
@@ -349,16 +327,13 @@ model PlanStep {
   status      PlanStepStatus @default(pending)
   origin      String        @default("agent")
   completedBy String?       @map("completed_by")
-  subFlowId   String?       @map("sub_flow_id")
   createdAt   DateTime      @map("created_at") @db.Timestamptz
   updatedAt   DateTime      @map("updated_at") @db.Timestamptz
 
   flow        Flow          @relation(fields: [flowId], references: [id])
   artifact    Artifact?     @relation(fields: [artifactId], references: [id])
-  subFlow     Flow?         @relation("SubFlowSteps", fields: [subFlowId], references: [id])
 
   @@index([flowId, position], map: "idx_plan_steps_flow")
-  @@index([subFlowId], map: "idx_plan_steps_sub_flow")
   @@map("plan_steps")
 }
 
@@ -634,24 +609,3 @@ model WorktreeRemoval {
   @@map("worktree_removals")
 }
 
-// ── step_merges (plan fan-out durable merge-back) ────────────────────────────
-
-model StepMerge {
-  id           String          @id
-  flowId       String          @map("flow_id")
-  parentFlowId String          @map("parent_flow_id")
-  parentNode   String          @map("parent_node")
-  branch       String?
-  status       StepMergeStatus @default(running)
-  attempts     Int             @default(0)
-  error        String?
-  createdAt    DateTime        @map("created_at") @db.Timestamptz
-  updatedAt    DateTime        @map("updated_at") @db.Timestamptz
-
-  flow         Flow            @relation("ChildMerges", fields: [flowId], references: [id])
-  parentFlow   Flow            @relation("ParentMerges", fields: [parentFlowId], references: [id])
-
-  @@index([parentFlowId, parentNode, status], map: "idx_step_merges_parent")
-  @@index([flowId], map: "idx_step_merges_flow")
-  @@map("step_merges")
-}

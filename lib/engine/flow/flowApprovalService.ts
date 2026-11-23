@@ -5,20 +5,18 @@ import { ConflictError, ValidationError } from "../../errors";
 import { ARTIFACT_STATUS } from "../constants/vocabulary";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { NODE_STATUS } from "../constants/nodeStatus";
-import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import { EFFECT_LIFECYCLE } from "../runtime/effects/constants/effectLifecycles";
 import { NodeRow } from "../../db/rows";
-import { jsonInput, parseRow } from "@/lib/db/ormRowHelpers";
+import { parseRow } from "@/lib/db/ormRowHelpers";
 import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
 import type { ApprovalHost } from "./types/approvalHost";
 import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
 
 /**
  * FlowApprovalService — the user-approval paths carved out of the FlowEngine
- * facade (step 02): plan approval (with the execution-override chip), the
- * SDLC build approval, the generic node approval, and the decision branch
- * choice. Every status write goes through the transition authority's
+ * facade (step 02): plan approval, the SDLC build approval, the generic node
+ * approval, and the decision branch choice. Every status write goes through the transition authority's
  * declared table via the host's keyed wrapper; releasing downstream nodes is
  * the shared attribution + advance block all four paths funnel through.
  *
@@ -29,7 +27,7 @@ import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
 export class FlowApprovalService {
   constructor(private readonly host: ApprovalHost) {}
 
-  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<TriggerResult> {
+  async approvePlan(flowId: string): Promise<TriggerResult> {
     const planKey = await this.host.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error('this flow template has no plan node');
     // the plan artifact must exist before anything is written — a missing
@@ -51,44 +49,6 @@ export class FlowApprovalService {
       key: 'approve',
     });
     if (!approved.started) return approved;
-    // Phase 3B: the plan panel's override chip — the user forced whole/steps
-    // at approve. Recorded in the plan version's plan-meta (execution +
-    // executionSource: "override") so a downstream from-plan fan-out node
-    // honors it; every plan-meta field rides the artifact, so the override is
-    // auditable per version. When the forced value equals the published one,
-    // the approve is a no-op for the meta.
-    if (executionOverride === 'whole' || executionOverride === 'steps') {
-      const plan = await this.host.latestResourceArtifact<{ id: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
-      if (!plan) throw new Error('no plan to approve');
-      let meta: Record<string, unknown> = {};
-      try {
-        // plan-meta rides the artifact's JSONB `meta` column — already parsed
-        // by the driver (Prisma); legacy string-encoded rows still parse
-        const m = typeof plan.meta === 'string' ? JSON.parse(plan.meta) : plan.meta;
-        if (m && typeof m === 'object' && !Array.isArray(m)) meta = m as Record<string, unknown>;
-      } catch {
-        meta = {};
-      }
-      const was = meta.execution === 'steps' ? 'steps' : 'whole';
-      const wasSource = typeof meta.executionSource === 'string' ? meta.executionSource : 'unknown';
-      if (was !== executionOverride) {
-        meta.execution = executionOverride;
-        meta.executionSource = 'override';
-        delete meta.execution_rationale; // the planner's rationale no longer applies
-        // (artifacts carry no updated_at column — the meta rewrite is the whole
-        // write; updateMany keeps the raw write's no-op-on-missing-row
-        // semantics). `meta` is an already-parsed object, so the ORM write
-        // stores the object the old text→jsonb cast produced (no stringify
-        // round-trip).
-        await db.prisma.artifact.updateMany({ where: { id: plan.id }, data: { meta: jsonInput(meta) } });
-        await this.host.emitLifecycle(
-          flowId,
-          planKey,
-          `plan execution overridden at approve: will execute ${executionOverride} (was ${was}, ${wasSource})`,
-          { nodeKey: planKey },
-        );
-      }
-    }
     await db.prisma.artifact.updateMany({
       where: { id: plan.id },
       data: { status: ARTIFACT_STATUS.APPROVED },
@@ -103,12 +63,6 @@ export class FlowApprovalService {
   }
 
   async approveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
-    // step children route to the fan-out approve (merge-back, approve ≠ MR);
-    // the parent's aggregate approval flows through the untouched chain below
-    if (await this.host.isStepChild(flowId)) {
-      await stepFlows.approveChildStep(flowId);
-      return { started: true };
-    }
     return this.host.chain.approveBuild(flowId, branchName);
   }
 
@@ -118,12 +72,6 @@ export class FlowApprovalService {
    * template edges activate on approval — the same contract as plan/build.
    */
   async approveNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
-    const node = await this.nodeOf(flowId, nodeKey);
-    // step children route to the fan-out approve (merge-back vs plain approval)
-    if ((await this.host.isStepChild(flowId)) && node.status === 'awaiting_approval') {
-      await stepFlows.approveChildStep(flowId);
-      return { started: true };
-    }
     const def = await this.host.defOf(flowId, nodeKey);
     if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
     // the approve transition's from-set IS the fence (step 06): a node not

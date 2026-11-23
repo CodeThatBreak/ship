@@ -33,7 +33,6 @@ import {
   type PlanMeta,
 } from './schema';
 import type { PlanStore } from './planStore';
-import type { ExecutionKnob } from './types/executionKnob';
 import type { PlanRunArgs } from './types/planTypeExports';
 import type { ScopedRefine } from './types/planTypeExports';
 import { PlanTurnKind } from './constants/planTurn';
@@ -46,7 +45,7 @@ import { PlanTurnKind } from './constants/planTurn';
  * {@link PlanScopedOutcome}) — plus the ONE bounded self-heal retry when a
  * response misses the contract. The artifact is saved HERE, not via
  * `outcome.artifact`: the output blob derives from the just-saved artifact row
- * (id, version, execution/scopedRefine provenance) — `applyOutcome` persists
+ * (id, version, scopedRefine provenance) — `applyOutcome` persists
  * the rest.
  *
  * Invariant: a whole-plan turn is applied only while THIS turn still owns the
@@ -62,7 +61,6 @@ export class PlanOutputContract {
     private readonly support: NodeSupport,
     private readonly store: PlanStore,
     private readonly runner: AgentRunner,
-    private readonly knobOf: (ctx: FlowCtx) => Promise<ExecutionKnob>,
     private readonly label: string
   ) {
     this.pipeline = new AgentOutputPipeline(support);
@@ -289,7 +287,7 @@ export class PlanOutputContract {
 
   /**
    * The one whole-plan persist + outcome path: version publish with the
-   * conversation/execution meta, checklist sync (`persistPlan` →
+   * conversation meta, checklist sync (`persistPlan` →
    * `syncFromPlan`), then awaiting approval. Shared by the run outcome and
    * the conversational apply so they can never drift.
    */
@@ -306,8 +304,6 @@ export class PlanOutputContract {
       userMessage: opts.userMessage,
       text: plan.markdown,
       planMeta,
-      plannerExecution: this.store.normalizePlannerExecution(plan),
-      knob: await this.knobOf(ctx),
       refined: opts.refined,
     });
     return planOutcome(art, planMeta, stepCount, plan.markdown, readRunModel(node));

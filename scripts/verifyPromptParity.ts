@@ -143,7 +143,7 @@ interface RowResult {
 }
 
 // Raw reads alias the snake_case columns to the camelCase row keys (Q11).
-const FLOW_BY_ID = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`;
+const FLOW_BY_ID = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`;
 const TASK_BY_ID = `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`;
 const NODE_BY_KEY = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`;
 
@@ -201,64 +201,6 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  const parentFlowId = 'flow_fixture_parent';
-  await db.prisma.$executeRawUnsafe(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    parentFlowId,
-    taskId,
-    'parity parent flow',
-    'active',
-    null,
-    null,
-    null,
-    FIXTURE_REPO_URL,
-    'cloud',
-    null,
-    'sdlc',
-    now(),
-    now()
-  );
-  await db.prisma.$executeRawUnsafe(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
-    'node_fixture_art',
-    parentFlowId,
-    NODE_KEYS.PLAN,
-    NODE_KEYS.PLAN,
-    now(),
-    now()
-  );
-  await db.prisma.$executeRawUnsafe(
-    `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7)`,
-    'art_fixture_plan',
-    'node_fixture_art',
-    parentFlowId,
-    'plan',
-    '# PLAN\nPARITY PARENT PLAN',
-    'approved',
-    now()
-  );
-  const childFlowId = 'flow_fixture_step';
-  await db.prisma.$executeRawUnsafe(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, parent_flow_id, kind, trigger_payload, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-    childFlowId,
-    taskId,
-    'parity step flow',
-    'active',
-    null,
-    null,
-    'parity/step-branch',
-    FIXTURE_REPO_URL,
-    'cloud',
-    parentFlowId,
-    'step',
-    // JSONB column: bind the payload object directly (no JSON.stringify)
-    {
-      step: { id: 's1', title: 'Parity step', detail: null, files: ['a.ts'], branch: 'parity/step-branch' },
-      siblings: [],
-    },
-    now(),
-    now()
-  );
   await db.prisma.$executeRawUnsafe(
     `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     'cmt_1',
@@ -284,15 +226,6 @@ async function main(): Promise<void> {
       now()
     );
   }
-  await db.prisma.$executeRawUnsafe(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
-    'node_fixture_step_build',
-    childFlowId,
-    NODE_KEYS.STEP_BUILD,
-    NODE_KEYS.STEP_BUILD,
-    now(),
-    now()
-  );
   // declarative agent def + its node row (resolved via nodeRegistry.resolve)
   const agDefId = 'ag_fixture_parity';
   await db.prisma.$executeRawUnsafe(
@@ -312,7 +245,7 @@ async function main(): Promise<void> {
   await db.prisma.$executeRawUnsafe(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_agent',
-    childFlowId,
+    flowId,
     'parity-agent',
     agDefId,
     now(),
@@ -433,18 +366,6 @@ async function main(): Promise<void> {
     input: { plan: 'PARITY PLAN CONTENT\n\nstep s1' },
   });
   await verifyRun({
-    kind: 'step_build',
-    def: nodeRegistry.get(NODE_KEYS.STEP_BUILD),
-    flowId: childFlowId,
-    nodeKey: NODE_KEYS.STEP_BUILD,
-    input: {
-      step: { id: 's1', title: 'Parity step', detail: null, files: ['a.ts'], branch: 'parity/step-branch' },
-      prompt: null,
-      feedback: null,
-      model: null,
-    },
-  });
-  await verifyRun({
     kind: 'review',
     def: nodeRegistry.get(NODE_KEYS.REVIEW),
     flowId,
@@ -461,7 +382,7 @@ async function main(): Promise<void> {
 
   // ── declarative agent: rendered prompt === spec.prompt + prompt_source ─────
   {
-    const flowRow = await zodGet(FlowRow, FLOW_BY_ID, childFlowId);
+    const flowRow = await zodGet(FlowRow, FLOW_BY_ID, flowId);
     const taskRow = await zodGet(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
@@ -471,7 +392,7 @@ async function main(): Promise<void> {
         previewEqualsRun: null,
         overlayOk: null,
         diverges: null,
-        note: 'fixture step-flow/task rows missing',
+        note: 'fixture flow/task rows missing',
       });
     } else {
       const ctx = { flow: flowRow, task: taskRow, repo: null };
@@ -486,7 +407,7 @@ async function main(): Promise<void> {
       const specPrompt = capturedSpecs[specStart] ?? null;
       const recorded = (await rawGet<{ input: Record<string, unknown> | null }>(
         `SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-        childFlowId,
+        flowId,
         'parity-agent'
       ))?.input ?? null;
       const recordedPrompt = typeof recorded?.prompt === 'string' && recorded.prompt ? recorded.prompt : null;

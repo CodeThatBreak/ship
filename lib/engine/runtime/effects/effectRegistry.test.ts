@@ -6,12 +6,6 @@ import { TRIGGER_SOURCE } from "../triggers/constants/triggerSources";
 import { registerSdlcEffects } from "../../nodes/chains/sdlcEffects";
 import type { ChainHost } from "../../nodes/chains/types/chainHost";
 import type { SdlcChain } from "../../nodes/chains/sdlcChain";
-import { registerFanoutEffects } from "../fanout/fanoutEffects";
-import type { StepFlowManager } from "../fanout/stepFlowManager/stepFlowManager";
-import { registerSplitEffects } from "../split/splitEffects";
-import type { SplitManager } from "../split/splitManager/splitManager";
-import { registerSubflowEffects } from "../subflow/subflowEffects";
-import type { SubflowManager } from "../subflow/subflowManager/subflowManager";
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import type { EffectCtx, NodeEffects } from "./types/nodeEffects";
 import { VerbRegistry } from "./verbRegistry";
@@ -50,34 +44,6 @@ describe("EffectRegistry (step 07 — Invariant 8)", () => {
     expect(await registry.run(EFFECT_LIFECYCLE.AFTER_FAILURE, ctxOf("build"))).toBe(false);
   });
 
-  it("runs the runtime-owned wildcard registrations after the exact defKey's", async () => {
-    const registry = new EffectRegistry();
-    const order: string[] = [];
-    registry.register("step_build", {
-      onChildTerminal: async () => {
-        order.push("exact");
-      },
-    });
-    registry.register(EFFECT_KEY_ANY, {
-      onChildTerminal: async () => {
-        order.push("wildcard-a");
-      },
-    });
-    registry.register(EFFECT_KEY_ANY, {
-      onChildTerminal: async () => {
-        order.push("wildcard-b");
-      },
-    });
-
-    expect(await registry.run(EFFECT_LIFECYCLE.ON_CHILD_TERMINAL, ctxOf("step_build"))).toBe(true);
-    expect(order).toEqual(["exact", "wildcard-a", "wildcard-b"]);
-    // a kind with no exact registration is unclaimed by void wildcard
-    // handlers: a wildcard claims only by RETURNING true (task 10's claim
-    // refinement) — the onChildTerminal callers ignore the return anyway,
-    // and the declarative wildcard's config-decided claim rides the same rule
-    expect(await registry.run(EFFECT_LIFECYCLE.ON_CHILD_TERMINAL, ctxOf("agent"))).toBe(false);
-  });
-
   it("a wildcard handler claims the follow-on only by returning true", async () => {
     const registry = new EffectRegistry();
     registry.register(EFFECT_KEY_ANY, {
@@ -109,12 +75,12 @@ describe("EffectRegistry (step 07 — Invariant 8)", () => {
     const registry = new EffectRegistry();
     registry.register("resolve", { loopReentry: async () => {} });
     registry.register("build", { afterApproval: async () => {} });
-    registry.register(EFFECT_KEY_ANY, { onChildTerminal: async () => {} });
-    registry.register(EFFECT_KEY_ANY, { onChildTerminal: async () => {} });
+    registry.register(EFFECT_KEY_ANY, { afterSuccess: async () => {} });
+    registry.register(EFFECT_KEY_ANY, { afterSuccess: async () => {} });
 
     expect(registry.entries()).toEqual([
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
+      { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
+      { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
       { defKey: "build", lifecycle: "afterApproval" },
       { defKey: "resolve", lifecycle: "loopReentry" },
     ]);
@@ -125,10 +91,6 @@ describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
   it("registers exactly the built-ins' def keys plus the runtime-owned wildcards — never a literal declarative def key", () => {
     const registry = new EffectRegistry();
     registerSdlcEffects(registry, inert<ChainHost>(), inert<SdlcChain>());
-    registerFanoutEffects(registry, inert<StepFlowManager>());
-    registerSplitEffects(registry, inert<SplitManager>());
-    // task 26: the subflow runtime's child-terminal rollup (the third wildcard)
-    registerSubflowEffects(registry, inert<SubflowManager>());
     // task 10: the declarative wildcard effects — relevance comes from the
     // node's config, so the registration is wildcard-only (Invariant F1: no
     // literal declarative def key ever enters this registry)
@@ -137,14 +99,10 @@ describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
     registerDeclarativeEffects(registry, verbs, inert<DeclarativeEffectsHost>());
 
     // The executable answer to "what happens when X finishes?" — every later
-    // effects task extends this snapshot with its own registration. Task 26
-    // adds the subflow runtime's third onChildTerminal wildcard.
+    // effects task extends this snapshot with its own registration.
     expect(registry.entries()).toEqual([
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterApproval" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: NODE_KEYS.BUILD, lifecycle: "afterApproval" },
       { defKey: NODE_KEYS.PIPELINE, lifecycle: "afterSuccess" },
       { defKey: NODE_KEYS.RESOLVE, lifecycle: "loopReentry" },

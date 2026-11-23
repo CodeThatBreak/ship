@@ -22,7 +22,6 @@ import type { ContractPipeline } from "../contractPipeline";
 import { ConditionEvaluator } from "./conditionEvaluator";
 import { InputMaterializer } from "./inputMaterializer";
 import { LoopJoin } from "./loopJoin";
-import type { StageGateRegistry } from "./stageGateRegistry";
 import { DEFAULT_LOOP_JOIN_DESCRIPTOR } from "./constants/loopJoin";
 
 /**
@@ -34,10 +33,9 @@ import { DEFAULT_LOOP_JOIN_DESCRIPTOR } from "./constants/loopJoin";
  * through the authority — then consult the EffectRegistry for what happens
  * after the stage finishes (Invariant 8).
  *
- * Invariants: no chain logic and no fan-out/split special cases here — the
- * runtimes own their expansion gates (delegated, decided inside the runtime)
- * and every post-finish concern is a registry registration; the loop join is
- * the declared descriptor ({ when, resets }), not ad-hoc status writes.
+ * Invariants: no chain logic here — every post-finish concern is a registry
+ * registration; the loop join is the declared descriptor ({ when, resets }),
+ * not ad-hoc status writes.
  *
  * Must never: write node status outside the declared keyed transitions, run a
  * manual-trigger node (the panel entries claim their own stages), or decide
@@ -54,7 +52,6 @@ export class StageRunner {
     private readonly events: TransitionEvents,
     private readonly effects: EffectRegistry,
     private readonly contracts: ContractPipeline,
-    private readonly gates: StageGateRegistry,
   ) {
     this.conditions = new ConditionEvaluator(host, events);
     this.inputs = new InputMaterializer(host, events);
@@ -179,18 +176,6 @@ export class StageRunner {
     if (!claim.started) return;
     try {
       const def = await this.host.defOf(flowId, nodeKey);
-      // ── stage-ownership gates (task 24): the registered axis answers "who
-      // owns this node's stage" — the fan-out and split runtimes register
-      // their gates at engine boot; a third runtime registers and never
-      // edits this file (finding E1). "own" = a gate ran the stage (the def
-      // run is skipped); { run, afterRun } = the def's normal whole path runs
-      // and the gate post-processes its output (the fan-out whole-wrap
-      // aggregate — the fan-out knob outranking the split consume, and the
-      // shadowed-knob trail event, live inside the gates); every gate
-      // answering "run" is the frozen default whole path. The gates claim
-      // through the same gateway — only the dispatch indirection moved.
-      const gate = await this.gates.resolve(flowId, nodeKey);
-      if (gate === "own") return;
       const runs =
         opts.rawInput !== undefined
           ? [{ input: opts.rawInput }]
@@ -204,7 +189,6 @@ export class StageRunner {
         await this.host.runNode(flowId, nodeKey, run.input, opts.rawPayload);
         run.after?.();
       }
-      if (typeof gate === "object") await gate.afterRun();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       // a typed contract violation already emitted its own
@@ -217,14 +201,6 @@ export class StageRunner {
       // skipped when the node already moved on (the error event carries the
       // failure detail)
       await this.host.setNodeStatus(flowId, nodeKey, "stageError");
-      // child-terminal notification (step 07): the registered onChildTerminal
-      // effects react to the failed stage — no-op without fan-out/split
-      // linkage (the defKey is unresolved here; the runtime-owned wildcard
-      // registrations don't need it)
-      await this.effects.run(
-        EFFECT_LIFECYCLE.ON_CHILD_TERMINAL,
-        this.effectCtx(flowId, nodeKey, "", "failed", opts.source),
-      );
       return;
     }
     await this.postTerminal(flowId, nodeKey, opts.source);
@@ -232,10 +208,9 @@ export class StageRunner {
 
   /**
    * The post-terminal dispatch (step 07, Invariant 8) — the single place that
-   * answers "what happens after this stage finishes": the registered
-   * onChildTerminal effects react (fan-out roll-up / split join), then the
-   * lifecycle effects for the outcome. An afterSuccess or loopReentry
-   * registration that runs owns the follow-on (the SDLC chain's sequencing —
+   * answers "what happens after this stage finishes": the lifecycle effects
+   * for the outcome. An afterSuccess or loopReentry registration that runs
+   * owns the follow-on (the SDLC chain's sequencing —
    * it advances the template edges itself); when nothing claims, the default
    * edge walk advances. A failed outcome dispatches afterFailure effects and
    * never advances — the pre-registry behavior.
@@ -247,10 +222,6 @@ export class StageRunner {
   async postTerminal(flowId: string, nodeKey: string, source?: TriggerSource): Promise<void> {
     const status = await this.host.nodeStatus(flowId, nodeKey);
     const defKey = (await this.host.defOf(flowId, nodeKey)).key;
-    await this.effects.run(
-      EFFECT_LIFECYCLE.ON_CHILD_TERMINAL,
-      this.effectCtx(flowId, nodeKey, defKey, status, source),
-    );
     if (isNodeTerminalSuccess(status ?? "")) {
       const ctx = this.effectCtx(flowId, nodeKey, defKey, status, source);
       if (await this.effects.run(EFFECT_LIFECYCLE.AFTER_SUCCESS, ctx)) return;
@@ -324,9 +295,6 @@ export class StageRunner {
     ctxMap?: FlowContextMap,
     inputMap?: Record<string, unknown>,
   ): Promise<unknown> {
-    // the shared evaluator (the subflow expansion gate drives the same one —
-    // the gate owns the stage and must materialize the same input the def
-    // run would have seen)
     return evalInputMapOver({
       nodeKey,
       rawInput,

@@ -2,21 +2,16 @@ import "server-only";
 
 import { db } from "../../db/app";
 import { Prisma } from "@prisma/client";
-import { FlowRow, Task } from "../../db/rows";
-import { ConflictError, NotFoundError, ValidationError } from "../../errors";
-import { FLOW_KIND } from "../constants/flowKind";
+import { Task } from "../../db/rows";
+import { NotFoundError, ValidationError } from "../../errors";
 import { NODE_STATUS } from "../constants/nodeStatus";
 import { nodeRegistry } from "../nodes/registry";
-import { mergeArena } from "./fanout/mergeArena";
 import { worktreeManager } from "./worktreeLifecycle";
 import { deleteFlowChildRows } from "./flowFactory/utils/flowChildDeletes";
 import { parseRow } from "@/lib/db/ormRowHelpers";
 import type { NodeStore } from "./nodeStore";
 import { parseStartContract, validateAgainstContract } from "../nodes/kinds/start/contract";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/templateStore";
-import type { StepChildPayload } from "./fanout/types/stepChildPayload";
-import type { SubflowChildPayload } from "./subflow/types/subflowChildPayload";
-import type { SplitChildPayload } from "./split/types/splitChildPayload";
 import type { FlowFactoryHost } from "./flowEngineHost";
 import { resolveRunMode } from "../utils/runMode";
 import type { CreateFlowOptions } from "./types/flowFactory";
@@ -37,13 +32,7 @@ export class FlowFactory {
   async deleteFlow(id: string): Promise<void> {
     const flow = await db.prisma.flow.findUnique({ where: { id }, select: { id: true } });
     if (!flow) throw new NotFoundError('flow', id);
-    const childIds = (await db.prisma.flow.findMany({ where: { parentFlowId: id }, select: { id: true } })).map(r => r.id);
-    const ids = [id, ...childIds];
-    for (const fid of ids) {
-      if (mergeArena.isMerging(fid)) {
-        throw new ConflictError('cannot delete a flow while a step merge is in progress');
-      }
-    }
+    const ids = [id];
     for (const fid of ids) {
       const active = await db.prisma.node.findMany({
         where: { flowId: fid, status: { in: [NODE_STATUS.RUNNING, NODE_STATUS.WAITING] } },
@@ -114,89 +103,6 @@ export class FlowFactory {
       const entry = entryKey ? graph.nodes.find((n) => n.defKey === entryKey) : undefined;
       if (entry?.trigger.type === "auto") void this.host.start(id);
     }
-    return id;
-  }
-
-  async createStepChild(
-    parentFlowId: string,
-    templateId: string,
-    name: string,
-    // task 26: the subflow runtime's payload rides the same path — the
-    // delegated input (contract-validated) beside the fan-out step payload
-    payload: StepChildPayload | SubflowChildPayload,
-    opts: { branch: string | null },
-    tx?: Prisma.TransactionClient,
-  ): Promise<string> {
-    const parentRow = await db.prisma.flow.findUnique({ where: { id: parentFlowId } });
-    if (!parentRow) throw new NotFoundError("flow", parentFlowId);
-    const parent = parseRow(FlowRow, parentRow, `flow ${parentFlowId}`);
-    const graph = await templateStore.graph(templateId);
-    if (!graph) throw new NotFoundError("flow template", templateId);
-    const startSpec = graph.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
-    const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
-    if (contractFields.length) {
-      const v = validateAgainstContract(contractFields, payload);
-      if (!v.ok) {
-        throw new Error(
-          `payload doesn't match the step child's start contract (template "${(await templateStore.flowTemplate(templateId))?.name ?? templateId}") — ${v.error}`);
-      }
-    }
-    const templateName = (await templateStore.flowTemplate(templateId))?.name ?? templateId;
-    const id = db.uid("flow_");
-    const ts = db.now();
-    await db.transaction(async (exec) => {
-      await exec.flow.create({
-        data: {
-          id, taskId: parent.taskId, name, status: "active",
-          repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode ?? undefined,
-          templateId: graph.templateId,
-          triggerPayload: payload as never,
-          mrBranch: opts.branch,
-          parentFlowId,
-          kind: FLOW_KIND.STEP,
-          createdAt: new Date(ts), updatedAt: new Date(ts),
-        },
-      });
-      await this.nodeStore.insertSnapshots(id, graph, { ts }, exec);
-      await templateStore.persistFlowGraphSnapshot(id, graph, exec);
-      await db.emitEvent(id, null, "lifecycle",
-        `step child created from "${templateName}" — parent flow ${parentFlowId}`, undefined, exec);
-    }, tx);
-    return id;
-  }
-
-  async createSplitChild(
-    parentFlowId: string,
-    templateId: string,
-    name: string,
-    payload: SplitChildPayload,
-    tx?: Prisma.TransactionClient,
-  ): Promise<string> {
-    const parentRow = await db.prisma.flow.findUnique({ where: { id: parentFlowId } });
-    if (!parentRow) throw new NotFoundError("flow", parentFlowId);
-    const parent = parseRow(FlowRow, parentRow, `flow ${parentFlowId}`);
-    const graph = await templateStore.graph(templateId);
-    if (!graph) throw new NotFoundError("flow template", templateId);
-    const templateName = (await templateStore.flowTemplate(templateId))?.name ?? templateId;
-    const id = db.uid("flow_");
-    const ts = db.now();
-    await db.transaction(async (exec) => {
-      await exec.flow.create({
-        data: {
-          id, taskId: parent.taskId, name, status: "active",
-          repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode ?? undefined,
-          templateId: graph.templateId,
-          triggerPayload: payload as never,
-          parentFlowId,
-          kind: FLOW_KIND.SPLIT,
-          createdAt: new Date(ts), updatedAt: new Date(ts),
-        },
-      });
-      await this.nodeStore.insertSnapshots(id, graph, { ts }, exec);
-      await templateStore.persistFlowGraphSnapshot(id, graph, exec);
-      await db.emitEvent(id, null, "lifecycle",
-        `split child created from "${templateName}" — parent flow ${parentFlowId}`, undefined, exec);
-    }, tx);
     return id;
   }
 

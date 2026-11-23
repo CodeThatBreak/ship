@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Artifact, FlowData, Node, PlanStepRow } from '@/types/flow';
+import type { Artifact, FlowData, Node } from '@/types/flow';
 import { FLOW_STATUS, isFailedStatus } from '@/constants/flow';
 import { ARTIFACT_KIND } from '../../../artifacts/constants/artifactKinds';
 import { isPanelVerbEligible } from '../../../utils/panelVerbCapability';
@@ -16,7 +16,6 @@ export interface AgentViewModel {
   current: Artifact | undefined;
   onSelectOutput: (id: string) => void;
   otherKinds: string[];
-  fannedOut: boolean;
   tabValues: string[];
   hasTabs: boolean;
   activeTab: string;
@@ -40,21 +39,13 @@ export function useAgentView(flow: FlowData, node: Node): AgentViewModel {
   const otherKinds = [
     ...new Set(node.artifacts.filter((a: Artifact) => a.kind !== outputKind).map((a: Artifact) => a.kind)),
   ];
-  // plan fan-out: the per-step monitoring surface becomes its own tab when the
-  // node fanned out (it used to sit above the artifacts)
-  const fannedOut = (flow.planSteps ?? []).some((s: PlanStepRow) => s.subFlow != null);
 
   const [selId, setSelId] = useState<string | null>(null);
   const [tab, setTab] = useState<string>(AGENT_VIEW_TAB.OUTPUT);
   const current = outputArts.find(a => a.id === selId) ?? outputArts[outputArts.length - 1];
-  const tabValues: string[] = [
-    AGENT_VIEW_TAB.OUTPUT,
-    ...(fannedOut ? [AGENT_VIEW_TAB.STEPS] : []),
-    ...otherKinds,
-  ];
-  // an artifact kind (or the fan-out) can disappear between renders (e.g. a
-  // refine reset): fall back to the output tab rather than leaving a stale,
-  // hidden panel selected
+  const tabValues: string[] = [AGENT_VIEW_TAB.OUTPUT, ...otherKinds];
+  // an artifact kind can disappear between renders (e.g. a refine reset):
+  // fall back to the output tab rather than leaving a stale, hidden panel selected
   const activeTab = tabValues.includes(tab) ? tab : AGENT_VIEW_TAB.OUTPUT;
 
   const branches = flow.branches ?? [];
@@ -64,9 +55,8 @@ export function useAgentView(flow: FlowData, node: Node): AgentViewModel {
     current,
     onSelectOutput: setSelId,
     otherKinds,
-    fannedOut,
     tabValues,
-    hasTabs: fannedOut || node.artifacts.length > 0,
+    hasTabs: node.artifacts.length > 0,
     activeTab,
     onTabChange: setTab,
     // a live run or a failure owns its own surface — no "No output yet" hint

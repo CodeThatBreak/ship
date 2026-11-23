@@ -1,6 +1,5 @@
 import 'server-only';
 
-import type { Prisma } from '@prisma/client';
 import type { FlowData } from '@/types/flow';
 import { db } from '../../db/app';
 import { NodeRow } from '../../db/rows';
@@ -19,20 +18,15 @@ import { createSdlcChain } from '../nodes/chains/utils/createSdlcChain';
 import { NODE_STATUS, type EngineNodeStatus } from '../constants/nodeStatus';
 import type { TransitionKey } from '../runtime/transitions/types/transitions';
 import type { TriggerResult, TriggerSource } from '../runtime/triggers/types/triggerGateway';
-import { stepFlows } from '../runtime/fanout/stepFlowManager';
-import type { StepChildPayload } from '../runtime/fanout/types/stepChildPayload';
-import type { SubflowChildPayload } from '../runtime/subflow/types/subflowChildPayload';
-import type { SplitChildPayload } from '../runtime/split/types/splitChildPayload';
 import { EffectRegistry } from '../runtime/effects/effectRegistry';
 import type { EffectCtx } from '../runtime/effects/types/nodeEffects';
 import type { EffectLifecycle } from '../runtime/effects/constants/effectLifecycles';
-import { registerStageGates, registerRuntimeEffects } from './engineBoot';
+import { registerRuntimeEffects } from './engineBoot';
 import { engineParts, type EngineParts } from '../../composition/container';
 
 import { ConflictError, NotFoundError, ValidationError } from '../../errors';
 import { CommentIngestor } from '../runtime/commentIngestor';
 import { StageRunner } from '../runtime/staging/stageRunner';
-import { StageGateRegistry } from '../runtime/staging/stageGateRegistry';
 import { BgRunner } from '../runtime/bgRunner';
 import { FlowFactory } from '../runtime/flowFactory';
 import type { CreateFlowOptions } from '../runtime/types/flowFactory';
@@ -47,7 +41,7 @@ import { PanelVerbService } from '../flow/panelVerbService';
 import { FlowCancelService } from '../flow/flowCancelService';
 
 
-/** FlowEngine — the composition root of the flow cluster and its read-model delegation surface (target-architecture §12: after steps 02–07 the facade is composition + delegation only — approvals/chat/retry live in `flow/`, staging in `runtime/staging/`, the chain in `nodes/chains/`, the effect/join layer in `runtime/effects/`, fan-out/split in their runtimes). Every `nodes.status` write goes through the transition authority (step 02, Invariant 1); every trigger claims through the gateway (step 06, Invariant 11); everything that happens after a stage/child/approval finishes dispatches through the effect registry (step 07, Invariant 8). Must never: grow chain logic or fan-out/split special cases back in — a new concern registers into the layer that owns it. */
+/** FlowEngine — the composition root of the flow cluster and its read-model delegation surface (target-architecture §12: after steps 02–07 the facade is composition + delegation only — approvals/chat/retry live in `flow/`, staging in `runtime/staging/`, the chain in `nodes/chains/`, the effect layer in `runtime/effects/`). Every `nodes.status` write goes through the transition authority (step 02, Invariant 1); every trigger claims through the gateway (step 06, Invariant 11); everything that happens after a stage/approval finishes dispatches through the effect registry (step 07, Invariant 8). Must never: grow chain logic back in — a new concern registers into the layer that owns it. */
 export class FlowEngine {
   private readonly parts: EngineParts;
   /** the fire-and-forget runner (see BgRunner) */
@@ -56,8 +50,6 @@ export class FlowEngine {
   readonly chain: SdlcChain;
   /** the effect/join layer (step 07, Invariant 8) — what happens after a stage/child/approval finishes, registered at this engine's boot */
   readonly effects: EffectRegistry;
-  /** the stage-ownership gate axis (task 24, finding E1) — who owns a node's stage, registered at this engine's boot; the StageRunner consults it instead of chaining runtime imports */
-  readonly stageGates: StageGateRegistry;
   private readonly waits: WaitStore;
   private readonly stages: StageRunner;
   private readonly readModel: FlowReadModel;
@@ -89,21 +81,15 @@ export class FlowEngine {
     // step 04: the authority's contract seam resolves defs through this engine
     parts.transitions.bindOutcomeContracts({ defOf: (flowId, nodeKey) => this.defOf(flowId, nodeKey) });
     this.waits = new WaitStore(this, parts.events);
-    // the effect/join layer (step 07, Invariant 8): the SDLC chain and the
-    // fan-out/split/subflow runtimes register their post-finish effects at
-    // this boot point — one registry per engine instance, so tests
-    // constructing their own engine get their own dispatch scope. The boot
-    // wiring lives in engineBoot.ts (the composition root stays under its
-    // shrink-only arch ceiling); the wiring order there IS the dispatch order
-    // and the registry snapshot tests pin it.
+    // the effect layer (step 07, Invariant 8): the SDLC chain and the
+    // declarative node kinds register their post-finish effects at this boot
+    // point — one registry per engine instance, so tests constructing their
+    // own engine get their own dispatch scope. The boot wiring lives in
+    // engineBoot.ts (the composition root stays under its shrink-only arch
+    // ceiling); the wiring order there IS the dispatch order and the registry
+    // snapshot tests pin it.
     this.effects = new EffectRegistry();
-    // the stage-ownership gate axis (task 24, finding E1; task 26 extends it
-    // with the subflow gate): the runtimes register their expansion gates at
-    // this boot point — the REGISTRATION ORDER is the evaluation order
-    // (fan-out first, then split, then subflow)
-    this.stageGates = new StageGateRegistry();
-    registerStageGates(this.stageGates);
-    this.stages = new StageRunner(this, this.waits, parts.events, this.effects, parts.contracts, this.stageGates);
+    this.stages = new StageRunner(this, this.waits, parts.events, this.effects, parts.contracts);
     this.readModel = new FlowReadModel(this.waits);
     this.factory = new FlowFactory(this, parts.nodeStore);
     this.comments = new CommentIngestor(this, this.waits);
@@ -122,21 +108,6 @@ export class FlowEngine {
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): Promise<string> {
     return this.factory.create(taskId, repoUrl, name, opts);
-  }
-
-  async createStepChild(
-    parentFlowId: string, templateId: string, name: string, payload: StepChildPayload | SubflowChildPayload,
-    opts: { branch: string | null }, tx?: Prisma.TransactionClient,
-  ): Promise<string> {
-    return this.factory.createStepChild(parentFlowId, templateId, name, payload, opts, tx);
-  }
-
-  async createSplitChild(parentFlowId: string, templateId: string, name: string, payload: SplitChildPayload, tx?: Prisma.TransactionClient): Promise<string> {
-    return this.factory.createSplitChild(parentFlowId, templateId, name, payload, tx);
-  }
-
-  async startStepChild(childFlowId: string): Promise<void> {
-    this.bg(childFlowId, null, async () => this.start(childFlowId));
   }
 
   // ── reads (FlowReadModel) ─────────────────────────────────────────────────
@@ -202,12 +173,7 @@ export class FlowEngine {
     return this.parts.nodeStore.statusOf(flowId, nodeKey);
   }
 
-  async isStepChild(flowId: string): Promise<boolean> {
-    const row = await db.prisma.flow.findUnique({ where: { id: flowId }, select: { parentFlowId: true } });
-    return row?.parentFlowId != null;
-  }
-
-  /** flows.updated_at heartbeat — the fan-out runtime's aggregate publish rides it. */
+  /** flows.updated_at heartbeat — keeps an idle flow's list ordering fresh. */
   async touch(flowId: string): Promise<void> {
     // updateMany keeps the raw write's no-op-on-missing-row semantics
     await db.prisma.flow.updateMany({ where: { id: flowId }, data: { updatedAt: new Date() } });
@@ -219,7 +185,7 @@ export class FlowEngine {
     await this.stages.advanceFrom(flowId, fromKey);
   }
 
-  /** the post-terminal dispatch (step 07, Invariant 8): child-terminal notifications + the registered lifecycle effects, falling through to the edge walk when nothing claims */
+  /** the post-terminal dispatch (step 07, Invariant 8): the registered lifecycle effects, falling through to the edge walk when nothing claims */
   postTerminal = (flowId: string, nodeKey: string): Promise<void> =>
     this.stages.postTerminal(flowId, nodeKey);
 
@@ -304,7 +270,7 @@ export class FlowEngine {
 
   // ── approvals (FlowApprovalService — flow/) ───────────────────────────────
 
-  /** Approve the build output ("Approve & create MR") — step children route to the fan-out approve. */
+  /** Approve the build output ("Approve & create MR"). */
   async approveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
     return this.approvals.approveBuild(flowId, branchName);
   }
@@ -394,20 +360,6 @@ export class FlowEngine {
     await this.parts.nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
     await this.parts.events.configUpdated(flowId, nodeKey, Object.keys(config));
     await this.touch(flowId);
-  }
-
-  // ── fan-out step actions (the fan-out runtime owns the bodies) ────────────
-
-  async skipFanoutStep(parentFlowId: string, stepId: string): Promise<void> {
-    await stepFlows.skipStepFlow(parentFlowId, stepId);
-  }
-
-  async approveFanoutStep(parentFlowId: string, stepId: string): Promise<void> {
-    await stepFlows.approveFanoutStep(parentFlowId, stepId);
-  }
-
-  async retryFanoutStep(parentFlowId: string, stepId: string): Promise<void> {
-    await stepFlows.retryFanoutStep(parentFlowId, stepId);
   }
 
   // ── cancel (FlowCancelService — flow/) ────────────────────────────────────

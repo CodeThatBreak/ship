@@ -1,7 +1,6 @@
 /** The fixed tabs; artifact kinds add further string values to the strip. */
 export const AGENT_VIEW_TAB = {
   OUTPUT: 'output',
-  STEPS: 'steps',
 } as const;
 
 /** `-mx-5` cancels the panel body's 20px insets; `w-full` alone would only

@@ -53,7 +53,7 @@ async function seed(index: number, stepIds: string[]): Promise<{ flowId: string;
   );
   await planSteps.syncFromPlan(flowId, artId, stepIds.map((id, i) => ({ id, title: `Step ${i + 1}`, branch: null })));
   const ctx = {
-    flow: { id: flowId, taskId, name: `assembler ${index}`, status: "active", executionMode: "local", mrBranch: null, parentFlowId: null, createdAt: now(), updatedAt: now() },
+    flow: { id: flowId, taskId, name: `assembler ${index}`, status: "active", executionMode: "local", mrBranch: null, createdAt: now(), updatedAt: now() },
     task: { id: taskId, type: "generic", key: `TST-${index}`, summary: "test", fields: {}, status: "open", issueType: "story", priority: "P2" },
   } as unknown as FlowCtx;
   return { flowId, ctx };

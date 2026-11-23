@@ -1,7 +1,9 @@
 'use client';
 import { useMemo } from 'react';
+import { Check } from 'lucide-react';
 import type { Artifact } from '@/types/flow';
 import { useNodePanel } from '../../panels';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FLOW_STATUS } from '@/constants/flow';
 
@@ -10,14 +12,9 @@ import { PlanStatusPanel } from './components/PlanStatusPanel';
 import { PlanVersionTabs } from './components/PlanVersionTabs';
 import { WholeDiffBanner } from './components/WholeDiffBanner';
 import { PlanSection } from './components/PlanSection';
-import { PlanApproveFooter } from './components/PlanApproveFooter';
 import PlanSteps from './components/planSteps/PlanSteps';
 import { ACTION_TYPES } from './constants/action';
-import type { PlanExecutionMode } from './constants/planConstants';
-import { resolveExecution } from './utils/planExecution';
 import { usePlanAction } from './hooks/usePlanAction';
-
-import type { BranchPlan } from './types/planTypes';
 
 /**
  * The plan panel's container: only what the panel owns — the selection
@@ -35,7 +32,7 @@ export default function PlanView() {
   const plans = useMemo(() => node.artifacts.filter((a: Artifact) => a.kind === 'plan'), [node.artifacts]);
   const { state, onAction } = usePlanAction(flow.id);
 
-  const { selectedId, expandedBranch } = state;
+  const { selectedId } = state;
 
   const current = useMemo(
     () => plans.find(a => a.id === selectedId) ?? plans[plans.length - 1] ?? null,
@@ -47,19 +44,7 @@ export default function PlanView() {
   const awaiting = node.status === FLOW_STATUS.AWAITING_APPROVAL;
   const showApprove = awaiting && isCurrent;
 
-  const branches = (node.output?.branches ?? null) as BranchPlan[] | null;
-  const branchCount = branches?.length ?? 0;
-  const showExecutionChoice = branchCount > 0;
-
-  const execution = resolveExecution(node, current?.meta);
-
-  const onApprove = (mode: PlanExecutionMode) => {
-    onAction({
-      type: ACTION_TYPES.APPROVE,
-      payload:
-        showExecutionChoice && mode !== execution.published ? { executionOverride: mode } : {},
-    });
-  };
+  const onApprove = () => onAction({ type: ACTION_TYPES.APPROVE, payload: {} });
 
   const onTabSelection = (id: string) => onAction({ type: ACTION_TYPES.SELECT_VERSION, payload: { id } });
 
@@ -72,28 +57,18 @@ export default function PlanView() {
           <PlanStatusPanel node={node} plans={plans} onAction={onAction} />
           <PlanVersionTabs plans={plans} selectedId={current?.id ?? null} onSelection={onTabSelection} />
           <WholeDiffBanner plans={plans} isCurrent={isCurrent} />
-          <PlanSection
-            node={node}
-            plans={plans}
-            planId={current?.id}
-            viewedVersion={current?.version ?? 0}
-            expandedBranch={expandedBranch}
-            onAction={onAction}
-          />
+          <PlanSection planId={current?.id} />
           <PlanSteps steps={flow.planSteps ?? []} editable={awaiting} flowId={flow.id} />
         </div>
       </ScrollArea>
 
       {showApprove && (
-        <PlanApproveFooter
-          publishedResolution={execution.resolution}
-          publishedSource={execution.publishedSource}
-          plannerRationale={execution.plannerRationale}
-          knob={execution.knob}
-          branchCount={branchCount}
-          showExecutionChoice={showExecutionChoice}
-          onApprove={onApprove}
-        />
+        <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0">
+          <div className="flex-1" />
+          <Button variant="default" size="sm" onClick={onApprove}>
+            <Check size={15} /> Approve plan
+          </Button>
+        </div>
       )}
     </div>
   );

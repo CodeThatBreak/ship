@@ -92,7 +92,7 @@ describe("agentToolService", () => {
 
   it("gates tools by the node kind's agentTools() allowlist", async () => {
     const plan = await seedAttempt(4, NODE_KEYS.PLAN);
-    // the checklist-claim tool is build/step-build only
+    // the checklist-claim tool is build only
     await expect(dispatch(plan, AGENT_TOOL.CLAIM_CHECKLIST_PROGRESS, { stepIds: ["s1"] }))
       .rejects.toMatchObject({ status: 403 });
     // read + report_failure are the agent-run tier's defaults

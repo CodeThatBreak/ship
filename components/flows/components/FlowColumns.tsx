@@ -72,25 +72,6 @@ export function flowColumns(
       },
     },
     {
-      id: "fanout",
-      header: "Fanout",
-      enableSorting: false,
-      cell: ({ row }) => {
-        const fanout = row.original.fanout;
-        return fanout?.active ? (
-          <Badge
-            variant="outline"
-            className="gap-1"
-            title="This flow is fanned out into step sub-flows — open it to monitor each step"
-          >
-            <GitMerge size={11} /> {fanout.steps} steps · {fanout.done} merged
-          </Badge>
-        ) : (
-          EMPTY_CELL
-        );
-      },
-    },
-    {
       id: "mr",
       header: "MR",
       enableSorting: false,

@@ -10,7 +10,7 @@ import "server-only";
 export const FLOW_STATUSES = ['active', 'done', 'failed', 'skipped'] as const;
 export type FlowRowStatus = (typeof FLOW_STATUSES)[number];
 
-export const FLOW_KINDS = ['sdlc', 'step', 'split'] as const;
+export const FLOW_KINDS = ['sdlc'] as const;
 export type FlowKindRow = (typeof FLOW_KINDS)[number];
 
 export const NODE_STATUSES = [
@@ -39,6 +39,3 @@ export type BranchStatus = (typeof BRANCH_STATUSES)[number];
 
 export const RUN_STATUSES = ['running', 'finished', 'error', 'cancelled'] as const;
 export type RunRowStatus = (typeof RUN_STATUSES)[number];
-
-export const STEP_MERGE_STATUSES = ['running', 'conflict', 'rejected', 'merged', 'failed'] as const;
-export type StepMergeStatus = (typeof STEP_MERGE_STATUSES)[number];

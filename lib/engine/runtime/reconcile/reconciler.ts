@@ -13,7 +13,6 @@ import { AwaitingApprovalHandler } from "./awaitingApprovalHandler";
 import { FLOW_SELECT } from "./constants/flowSelect";
 import { RecoveryDriver } from "./recoveryDriver";
 import { RunningHandler } from "./runningHandler";
-import { StepMergeRecovery } from "./stepMergeRecovery";
 import type { NodeStateView, RecoveryHost } from "./types/reconcile";
 import { WaitingHandler } from "./waitingHandler";
 
@@ -22,8 +21,7 @@ import { WaitingHandler } from "./waitingHandler";
  * it toward terminal-or-actionable (Invariant 3, step 03): `running` with an
  * expired lease → recovery; `waiting` past its durable deadline → fire;
  * `waiting`/`awaiting_approval` with a dead upstream → failed + event;
- * `approved` build without an MR → revert to `awaiting_approval`. Then the
- * fan-out family pass (stuck step merges, orphan children).
+ * `approved` build without an MR → revert to `awaiting_approval`.
  *
  * The pass is idempotent and cheap (lease/wait comparisons in SQL on
  * DB-server time), so it runs every worker tick and on flow open — the old
@@ -39,7 +37,6 @@ export class Reconciler {
   private readonly waiting: WaitingHandler;
   private readonly awaitingApproval: AwaitingApprovalHandler;
   private readonly approved: ApprovedHandler;
-  private readonly stepMerges = new StepMergeRecovery();
 
   constructor(opts: {
     transitions?: TransitionAuthority;
@@ -54,13 +51,12 @@ export class Reconciler {
     this.waiting = new WaitingHandler(transitions, events, opts.waits ?? flowEngine.waitsStore);
     this.awaitingApproval = new AwaitingApprovalHandler(transitions, events);
     this.approved = new ApprovedHandler(transitions, events);
-    this.stepMerges.bind((flow) => this.reconcileNodeStates(flow));
   }
 
   /**
-   * One idempotent pass over a flow's non-terminal nodes, then its fan-out
-   * family. Safe under repeated invocation (conditional transitions +
-   * claim-fenced recovery make every action a no-op on the second pass).
+   * One idempotent pass over a flow's non-terminal nodes. Safe under repeated
+   * invocation (conditional transitions + claim-fenced recovery make every
+   * action a no-op on the second pass).
    */
   async reconcileFlow(flowId: string): Promise<void> {
     // legacy runs captured without cost (and stale estimates) get a cost from
@@ -69,17 +65,6 @@ export class Reconciler {
     const flow = await db.prisma.flow.findUnique({ where: { id: flowId }, select: FLOW_SELECT });
     if (!flow || flow.status !== "active") return;
     await this.reconcileNodeStates(flow as unknown as FlowRow);
-    await this.stepMerges.reconcileFamily(flow as unknown as FlowRow);
-  }
-
-  /** Drop per-process dedup entries for flows that are gone or inactive. */
-  async pruneFlowMaps(activeFlowIds: Set<string>): Promise<void> {
-    await this.stepMerges.prune(activeFlowIds);
-  }
-
-  /** Worker-boot global pass over every stuck step_merges family. */
-  async sweepStuckStepMerges(): Promise<void> {
-    await this.stepMerges.sweepStuck();
   }
 
   /**

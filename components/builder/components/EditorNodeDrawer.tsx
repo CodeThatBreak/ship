@@ -42,9 +42,6 @@ export interface EditorNodeDrawerProps {
   incoming: IncomingLink[];
   /** an isolated node can't be configured yet */
   locked: boolean;
-  /** the fan-out gate (save-time lint rule 1, mirrored): only nodes a plan
-   *  node reaches through next edges expand */
-  planDownstream: boolean;
   taskFields: TaskProviderInfo['contextFields'];
   triggerFields: TriggerField[];
   /** refs underlined in the prompt editor (the linter's problems) */
@@ -66,7 +63,6 @@ export function EditorNodeDrawer({
   node,
   incoming,
   locked,
-  planDownstream,
   taskFields,
   triggerFields,
   invalidRefs,
@@ -119,7 +115,6 @@ export function EditorNodeDrawer({
               node={node}
               incoming={incoming}
               locked={locked}
-              planDownstream={planDownstream}
               taskFields={taskFields}
               triggerFields={triggerFields}
               invalidRefs={invalidRefs}

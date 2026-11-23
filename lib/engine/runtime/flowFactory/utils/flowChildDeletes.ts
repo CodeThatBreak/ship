@@ -10,8 +10,7 @@ import type { Prisma } from "@prisma/client";
  * sync with `scripts/lib/seed-db.mjs`).
  */
 export const deleteFlowChildRows = async (tx: Prisma.TransactionClient, flowId: string): Promise<void> => {
-  await tx.stepMerge.deleteMany({ where: { flowId } }); // step_merges — fan-out merge-back records
-  await tx.planStep.deleteMany({ where: { flowId } }); // plan_steps — sub_flow_id → flows
+  await tx.planStep.deleteMany({ where: { flowId } });
   await tx.event.deleteMany({ where: { flowId } });
   await tx.message.deleteMany({ where: { flowId } });
   await tx.run.deleteMany({ where: { flowId } });

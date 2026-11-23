@@ -8,7 +8,6 @@ import { type NodeRow } from '../../../../db/rows';
 import { type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
 import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types/planTypeExports';
-import type { PlannerExecution } from './types/plannerExecution';
 
 /**
  * The plan domain's data access + publish seam: the latest plan artifact (with
@@ -75,19 +74,6 @@ export class PlanStore {
     return { latest, branch, liveRows: (await this.liveRows(flowId)).filter(s => s.branch === branch.name) };
   }
 
-  /**
-   * The planner's execution decision out of a parsed plan response (`execution`
-   * + `execution_rationale` are OPTIONAL top-level response fields) —
-   * unknown/missing values normalize to `whole` with no rationale, and nothing
-   * here can fail the plan (the parse pipeline is not extended with a
-   * requirement).
-   */
-  normalizePlannerExecution(whole: { execution?: unknown; execution_rationale?: unknown } | null | undefined): PlannerExecution {
-    const rationale = this.rationaleOf(whole?.execution_rationale);
-    if (whole?.execution === 'steps') return { value: 'steps', rationale };
-    return { value: 'whole', rationale };
-  }
-
   /** Save the plan artifact and sync the editable step checklist from it (the run path). */
   async persistPlan(args: {
     ctx: Pick<FlowCtx, 'flow'>;
@@ -95,36 +81,12 @@ export class PlanStore {
     userMessage: string;
     text: string;
     planMeta: PlanMeta | null;
-    plannerExecution?: PlannerExecution | null;
-    knob: 'whole' | 'follow';
     refined?: RefinedFrom;
   }): Promise<{ art: { id: string; version: number }; stepCount: number }> {
-    // plan fan-out (§1 "who decides the mode"): the published execution
-    // resolution rides every plan version in artifacts.meta (`execution`) —
-    // precedence: the knob (whole) > the planner's follow value > whole.
-    // Sources (auditable per version): "knob" (explicit planning knob),
-    // "planner" (follow + the planner decided this version), "default"
-    // (follow + the planner published nothing valid ⇒ whole). Re-refining
-    // re-publishes; the approve-time override (approve_plan action) writes
-    // executionSource "override" into the same meta afterwards.
-    let execution: 'whole' | 'steps' = 'whole';
-    let source: 'knob' | 'planner' | 'default' = 'knob';
-    let rationale: string | undefined;
-    if (args.knob === 'follow') {
-      execution = args.plannerExecution?.value ?? 'whole';
-      source = args.plannerExecution ? 'planner' : 'default';
-      rationale = args.plannerExecution?.rationale ?? undefined;
-    } else {
-      execution = args.knob;
-      source = 'knob';
-    }
     const art = await this.publish(args, {
       feedback: args.userMessage,
       branches: args.planMeta?.branches ?? undefined,
       steps: args.planMeta?.steps ?? undefined,
-      execution,
-      executionSource: source,
-      ...(rationale ? { execution_rationale: rationale } : {}),
       ...(args.refined ? { refinedFrom: args.refined } : {}),
     });
     return { art, stepCount: await this.syncSteps(args.ctx.flow.id, art, args.planMeta) };
@@ -141,10 +103,5 @@ export class PlanStore {
   /** Sync the checklist from a plan version's steps (no steps → no-op). */
   private async syncSteps(flowId: string, art: { id: string }, planMeta: PlanMeta | null): Promise<number> {
     return planMeta?.steps?.length ? planSteps.syncFromPlan(flowId, art.id, planMeta.steps) : 0;
-  }
-
-  /** One-line rationale, trimmed and capped — missing/blank → null. */
-  private rationaleOf(raw: unknown): string | null {
-    return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 280) : null;
   }
 }

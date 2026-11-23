@@ -12,8 +12,7 @@ import type { AgentRunner } from "../../../harness/harnessExports";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
-import { configString, splitConsumerConfigFields } from "../../../templates/nodeConfig";
-import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split/schemas/splitKnobs";
+import { configString } from "../../../templates/nodeConfig";
 import { PipelineConsumes, PipelineInput, PipelineOutput } from "./schema";
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { RecoveryResult } from "../../shared/types/recovery";
@@ -77,10 +76,6 @@ export class PipelineNode extends AgentRunNode<
       .number()
       .min(1)
       .default(WAIT_TIMEOUT_MS_DEFAULT / 60_000),
-    // split-consumption knobs (agent-node split plan §2.4 — Phase 4): how this
-    // gate consumes an upstream split source's units (default whole = today)
-    split_consume: splitConsumeSchema,
-    split_parallel_max: splitParallelMaxSchema,
   });
   override readonly configFields = [
     {
@@ -119,7 +114,6 @@ export class PipelineNode extends AgentRunNode<
       type: "number",
       help: "Give up waiting (retryable failure) after this long.",
     },
-    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   private readonly waitLoop: GateWaitLoop;

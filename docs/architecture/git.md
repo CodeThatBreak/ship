@@ -64,7 +64,6 @@ Failures throw `GitCommandError` (see error taxonomy). A timed-out `worktree add
 |------|-----|
 | `workspaces/clones/<flowId>` | Full clone for cloud-mode diffs (`.git` **directory**) |
 | `workspaces/worktrees/<flowId>` | Linked worktree for local-mode runs (`.git` **file**) |
-| `workspaces/arenas/<parentFlowId>` | Merge-back checkout for plan fan-out |
 
 Clones and worktrees never share a directory — the sweep distinguishes them by the `.git` file-vs-directory test, and `WorktreeSetup` refuses nested or overlapping hub/worktree trees.
 
@@ -142,7 +141,6 @@ The route (`app/api/flows/worktree-status/route.ts`) is a thin Node-runtime, `fo
 ## Out of scope
 
 - Git-host REST/GraphQL operations (MRs, comments, pipelines) — `lib/integrations/**` behind the `gitHostRegistry` port.
-- Merge-arena execution and `step_merges` fan-out merge-back records.
 - Webhook ingestion and cloud-agent sandboxes (no local git involved).
 
 ## Related code index

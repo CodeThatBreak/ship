@@ -1,6 +1,6 @@
 ---
 node_key: <node_key>
-kind: builtin | declarative | child
+kind: builtin | declarative
 status: current | draft
 owner: <team>
 last_reviewed: YYYY-MM-DD
@@ -93,10 +93,6 @@ last_reviewed: YYYY-MM-DD
 ### Response shapes
 
 ### Retries and guards
-
-## Fan-out and downstream
-
-<!-- optional -->
 
 ## Provenance and review UI
 

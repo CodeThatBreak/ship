@@ -13,10 +13,6 @@ import type { TransitionRow } from "../types/transitions";
  * - `attempt_id` is written only by claim-shaped rows (to-set `running`),
  *   cleared by every write that leaves `running`.
  * - Terminal writes carry the validated `output` in the same statement.
- * - Rows whose from-set is a broad complement (e.g. `skipUnit`,
- *   `mergeBackFailed`) deliberately exclude terminals the engine must never
- *   overwrite — that exclusion IS the fix for the late-aggregate overwrite
- *   bugs (see `tests/engine-overhaul/finishSplitOverwrite.test.ts`).
  */
 export const TRANSITION_TABLE = {
   // ── claims: → running, each stamps a fresh attempt_id ────────────────────
@@ -64,15 +60,9 @@ export const TRANSITION_TABLE = {
   armWait: { from: [NODE_STATUS.PENDING], to: [NODE_STATUS.WAITING], actor: "effect" },
   /** Branch not taken: an inactive edge's target with all edges resolved. */
   skipBranch: { from: [NODE_STATUS.PENDING], to: [NODE_STATUS.SKIPPED], actor: "effect" },
-  /** Split unit skipped by the user: every non-terminal child node of the unit's flow. */
-  skipUnit: {
-    from: [NODE_STATUS.PENDING, NODE_STATUS.RUNNING, NODE_STATUS.WAITING, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.APPROVED, NODE_STATUS.FAILED],
-    to: [NODE_STATUS.SKIPPED],
-    actor: "user",
-  },
 
   // ── approvals ────────────────────────────────────────────────────────────
-  /** Generic approval of an awaiting node (plan, declarative, split units). */
+  /** Generic approval of an awaiting node (plan, declarative). */
   approve: { from: [NODE_STATUS.AWAITING_APPROVAL], to: [NODE_STATUS.APPROVED], actor: "user" },
   /** A decision's manual branch pick (choose action). */
   chooseBranch: { from: [NODE_STATUS.AWAITING_APPROVAL], to: [NODE_STATUS.APPROVED], actor: "user" },
@@ -97,35 +87,6 @@ export const TRANSITION_TABLE = {
     to: [NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.DONE, NODE_STATUS.FAILED],
     actor: "effect",
   },
-  /** Fan-out aggregate terminal (trigger-type dependent: approval holds).
-   *  From-set includes the aggregate's own held/failed states — the rollup
-   *  republishes as units approve/retry; a published `done` aggregate is
-   *  FINAL until a loop re-entry re-claims the node (CR-009). A user's
-   *  fresh claim is protected by the attempt fence. */
-  fanoutOutcome: {
-    from: [NODE_STATUS.RUNNING, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.FAILED],
-    to: [NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.DONE],
-    actor: "effect",
-  },
-  /** Split aggregate terminal (worst-of its unit entries, decision 4) —
-   *  republishes from its own held/failed states as units approve or retry;
-   *  a published `done` aggregate is final until re-entry re-claims. */
-  splitOutcome: {
-    from: [NODE_STATUS.RUNNING, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.FAILED],
-    to: [NODE_STATUS.FAILED, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.DONE],
-    actor: "effect",
-  },
-  /** Subflow aggregate terminal (task 26): the ONE delegated child's terminal
-   *  output (or the declared `pass` mapping) publishes as the parent's
-   *  aggregate — failed child ⇒ failed parent, approval-triggered parent
-   *  holds. From-set mirrors the other aggregates so a stale child terminal
-   *  after a re-claim loses to the attempt fence. */
-  subflowOutcome: {
-    from: [NODE_STATUS.RUNNING, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.FAILED],
-    to: [NODE_STATUS.FAILED, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.DONE],
-    actor: "effect",
-  },
-
   // ── failures ─────────────────────────────────────────────────────────────
   /** A stage's fire-and-forget run errored (bg catch / stage catch). */
   stageError: { from: [NODE_STATUS.RUNNING], to: [NODE_STATUS.FAILED], actor: "system" },
@@ -144,22 +105,6 @@ export const TRANSITION_TABLE = {
   orphanFail: { from: [NODE_STATUS.RUNNING], to: [NODE_STATUS.FAILED], actor: "reconcile" },
   /** Reconciler: recovery declined — fail so the user can retry. */
   recoverDeclined: { from: [NODE_STATUS.RUNNING], to: [NODE_STATUS.FAILED], actor: "reconcile" },
-  /** Fan-out merge-back failed on the step child's work node. */
-  mergeBackFailed: {
-    from: [NODE_STATUS.PENDING, NODE_STATUS.RUNNING, NODE_STATUS.WAITING, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.APPROVED],
-    to: [NODE_STATUS.FAILED],
-    actor: "effect",
-  },
-
-  // ── merge-back loop (plan fan-out) ───────────────────────────────────────
-  /** A merge-fix agent finished: keep the child awaiting the re-attempted merge. */
-  mergeFixAwaiting: {
-    from: [NODE_STATUS.RUNNING, NODE_STATUS.AWAITING_APPROVAL],
-    to: [NODE_STATUS.AWAITING_APPROVAL],
-    actor: "effect",
-  },
-  /** User Retry on a merge-failed step: re-enter the merge loop. */
-  mergeRetryAwaiting: { from: [NODE_STATUS.FAILED], to: [NODE_STATUS.AWAITING_APPROVAL], actor: "user" },
 
   // ── resets ───────────────────────────────────────────────────────────────
   /** Loop re-entry: a success terminal or prior skip resets to pending. */

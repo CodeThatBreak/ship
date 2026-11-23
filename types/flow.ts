@@ -95,26 +95,6 @@ export type PlanStepRow = {
   status: string;
   origin: string;
   completedBy?: string | null;
-  /** plan fan-out: the child flow building this step (parent panel step cards) */
-  subFlow?: {
-    id: string;
-    name: string;
-    status: string;
-    branch: string | null;
-    nodeKey: string | null;
-    nodeStatus: string | null;
-    parentNodeKey: string | null;
-    /** Phase 2 merge-back state (durable step_merges row + stale-base derivation) */
-    mergeStatus?: string | null;
-    mergeAttempts?: number;
-    mergeError?: string | null;
-    staleBase?: boolean;
-    /** Phase 4 cost/duration rollup — the child flow's own run rows (zeroed when none) */
-    costCents?: number;
-    tokens?: number;
-    durationMs?: number;
-    runCount?: number;
-  } | null;
 };
 export type FlowData = {
   id: string;

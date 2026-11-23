@@ -16,8 +16,8 @@ export class WorkspacePaths {
   /** Linked worktree for local agent runs (`workspaces/worktrees/<id>`). */
   worktreeDir = (flowId: string): string => path.join(this.root, "worktrees", flowId);
 
-  /** Dedicated merge-back checkout (`workspaces/arenas/<parentFlowId>`). */
-  mergeArenaDir = (parentFlowId: string): string => path.join(this.root, "arenas", parentFlowId);
+  /** Dedicated merge-back checkout (`workspaces/arenas/<flowId>`). */
+  mergeArenaDir = (flowId: string): string => path.join(this.root, "arenas", flowId);
 
   /** Top-level segment that holds flow worktrees (for sweep / containment checks). */
   worktreesRoot = (): string => path.join(this.root, "worktrees");

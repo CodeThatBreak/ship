@@ -2,8 +2,8 @@ import { FLOW_STATUS } from "@/constants/flow";
 import type { Node } from "@/types/flow";
 
 /**
- * Every running node key — the graph highlights all of them (fan-out flows
- * may run several nodes at once). Empty set when the flow is idle, which is
+ * Every running node key — the graph highlights all of them (several nodes
+ * may be running at once). Empty set when the flow is idle, which is
  * exactly what a null `current_node` depicted before the column was deleted.
  */
 export const runningNodeKeysOf = (nodes: Node[]): Set<string> =>

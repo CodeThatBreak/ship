@@ -5,8 +5,8 @@ import type { EffectLifecycle } from "../constants/effectLifecycles";
 
 /**
  * The context one effect dispatch carries: the finished node's identity, the
- * terminal status that fired the lifecycle (null for the approval and
- * child-terminal doors), and the trigger params the effect may consume (the
+ * terminal status that fired the lifecycle (null for the approval door), and
+ * the trigger params the effect may consume (the
  * approve door's override values ride here). Effects read deeper state through
  * their owning module's host — the context is identity, not a data bus.
  */
@@ -40,7 +40,6 @@ export interface NodeEffects {
   afterSuccess?: EffectHandler;
   afterFailure?: EffectHandler;
   afterApproval?: EffectHandler;
-  onChildTerminal?: EffectHandler;
   loopReentry?: EffectHandler;
 }
 

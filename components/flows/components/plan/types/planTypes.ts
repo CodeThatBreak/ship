@@ -22,12 +22,9 @@ export type PlanUiAction =
   | { type: (typeof PLAN_UI_ACTION)['TOGGLE_BRANCH']; payload: { name: string } }
   | { type: (typeof PLAN_UI_ACTION)['COLLAPSE_BRANCH'] };
 
-/** A branch sub-plan row in `node.output.branches` (plan fan-out, Phase 3A). */
-export interface BranchPlan {
+/** The branch shape branch-refine reads from `node.output.branches`:
+ *  the thread name and the branch's own (scoped-refined) document. */
+export interface RefineBranch {
   name: string;
-  title?: string;
   markdown?: string;
-  scope?: string;
-  dependsOn?: string[];
-  subPlan?: { prompt?: string; steps?: unknown[] } | null;
 }

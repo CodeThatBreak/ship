@@ -11,7 +11,6 @@
  */
 import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { StepRollup } from "./runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 
 // Must run before any `../db` import touches the connection — dynamic imports
@@ -20,18 +19,9 @@ assignTestDatabase();
 
 const { db } = await import("../db/app");
 const { FlowEngine } = await import("./flowEngine/flowEngine");
-const { stepFlows } = await import("./runtime/fanout/stepFlowManager");
-// the pin module's tail binds stepFlows/splitManager to the shared engine —
-// loading the class alone (the split moved the bind to the pin, the old
-// monolith's module tail) leaves the rollup's engine reference unset
-await import("./flowEngine");
 const { ERROR_CODE } = await import("../errors");
 const { NODE_KEYS } = await import("./constants/nodeKeys");
 const { templateStore } = await import("./templates/templateStore");
-
-/** the aggregate publish moved off FlowEngine into the fan-out runtime's
- *  StepRollup (step 07) — tests drive it through the bound facade's rollup */
-const rollup = (stepFlows as unknown as { rollup: StepRollup }).rollup;
 
 const now = () => new Date().toISOString();
 
@@ -226,38 +216,6 @@ describe("engine chain-role routing (T3)", () => {
     ).toBe("running");
   });
 
-  it("finishFanout does not regress a parent node after the aggregate is already published (CR-009)", async () => {
-    const flowId = await seedFlow(6);
-    const buildKey = await engine.keyOfRole(flowId, NODE_KEYS.BUILD);
-    if (!buildKey) throw new Error("expected build key");
-    await testRun(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      `node_${flowId}_build`,
-      flowId,
-      buildKey,
-      NODE_KEYS.BUILD,
-      "running",
-      now(),
-      now(),
-    );
-    const aggregate = {
-      steps: [{ id: "s1", title: "Step", status: "done" as const, output: {} }],
-    };
-    await rollup.finishFanout(flowId, buildKey, aggregate);
-    const afterFirst = await testGet<{ status: string; output: string | null }>(
-      `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
-    expect(afterFirst?.status).toBe("awaiting_approval");
-
-    await rollup.finishFanout(flowId, buildKey, {
-      steps: [{ id: "s2", title: "Retry", status: "failed" as const, output: {} }],
-    });
-    const afterSecond = await testGet<{ status: string; output: string | null }>(
-      `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
-    expect(afterSecond?.status).toBe(afterFirst?.status);
-    // JSONB column: each read surfaces a fresh object — compare the payload,
-    // not the reference (the sqlite TEXT column made `toBe` work)
-    expect(afterSecond?.output).toEqual(afterFirst?.output);
-  });
 });
 
 describe("ingestComments", () => {

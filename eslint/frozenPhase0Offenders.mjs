@@ -9,7 +9,6 @@ export const FROZEN_PHASE0_OFFENDERS = [
   "lib/engine/nodes/kinds/merge-request/merge-request-service.ts",
   "lib/engine/nodes/kinds/plan/branch-refinement.ts",
   "lib/engine/nodes/kinds/plan/plan-contract.ts",
-  "lib/engine/runtime/fanout/step-flow-manager.ts",
   "lib/engine/runtime/flow-poller.ts",
   "lib/engine/runtime/hook-store.ts",
   "lib/engine/runtime/plan-step-store.ts",

@@ -99,33 +99,18 @@ export const uid = (p = "") =>
 
 // ── flow deletion (mirrors FlowEngine.delete / FLOW_CHILD_TABLES) ────────────
 
-/** Collect a flow and every descendant step/split flow (parent_flow_id tree). */
-async function collectFlowTree(prisma, flowId) {
-  const ids = [];
-  const queue = [flowId];
-  while (queue.length) {
-    const id = queue.shift();
-    ids.push(id);
-    const children = await prisma.flow.findMany({ where: { parentFlowId: id }, select: { id: true } });
-    queue.push(...children.map((c) => c.id));
-  }
-  return ids;
-}
-
 /**
- * Delete a flow (and its descendant flows) with all step children, mirroring
- * FlowEngine.delete() — children before `flows`, FK-safe. Does not remove
- * worktrees — seed scripts only touch the database.
+ * Delete a flow and its owned rows, mirroring FlowEngine.delete() — children
+ * before `flows`, FK-safe. Does not remove worktrees — seed scripts only touch
+ * the database.
  */
 export async function deleteFlowCascadePg(prisma, flowId) {
-  const ids = await collectFlowTree(prisma, flowId);
+  const ids = [flowId];
   const hookIds = (
     await prisma.hook.findMany({ where: { flowId: { in: ids } }, select: { id: true } })
   ).map((h) => h.id);
 
   await prisma.$transaction([
-    // step_merges / plan_steps first (they reference flows from both ends)
-    prisma.stepMerge.deleteMany({ where: { OR: [{ flowId: { in: ids } }, { parentFlowId: { in: ids } }] } }),
     prisma.planStep.deleteMany({ where: { flowId: { in: ids } } }),
     prisma.event.deleteMany({ where: { flowId: { in: ids } } }),
     prisma.message.deleteMany({ where: { flowId: { in: ids } } }),
@@ -166,7 +151,6 @@ export async function deleteTaskDemoFlows(prisma, taskId, flowIds) {
  * (tests/seedDb.test.ts asserts they match).
  */
 export const FLOW_CHILD_TABLES = [
-  "step_merges",
   "plan_steps",
   "events",
   "messages",
@@ -228,18 +212,13 @@ export function resolveSeedDb(root, options = {}) {
 }
 
 /**
- * Delete a flow and its step children (plan fan-out), mirroring FlowEngine.delete().
+ * Delete a flow and its owned rows, mirroring FlowEngine.delete().
  * Legacy sqlite version (tests/seedDb.test.ts contract) — seed scripts use
  * `deleteFlowCascadePg`.
  */
 export function deleteFlowCascade(db, flowId) {
-  const childIds = db
-    .prepare(`SELECT id FROM flows WHERE parent_flow_id=?`)
-    .all(flowId)
-    .map((r) => r.id);
-  db.prepare(`DELETE FROM step_merges WHERE flow_id=? OR parent_flow_id=?`).run(flowId, flowId);
   db.prepare(`DELETE FROM plan_steps WHERE flow_id=?`).run(flowId);
-  const ids = [flowId, ...childIds];
+  const ids = [flowId];
   for (const fid of ids) {
     for (const table of FLOW_CHILD_TABLES) {
       db.prepare(`DELETE FROM ${table} WHERE flow_id=?`).run(fid);

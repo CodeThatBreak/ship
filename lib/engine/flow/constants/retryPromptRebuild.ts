@@ -15,7 +15,6 @@ import { NODE_KEYS } from "../../constants/nodeKeys";
  */
 export const PROMPT_REBUILD_RETRY_KEYS: ReadonlySet<string> = new Set([
   NODE_KEYS.BUILD,
-  NODE_KEYS.STEP_BUILD,
   NODE_KEYS.REVIEW,
   NODE_KEYS.RESOLVE,
   NODE_KEYS.PIPELINE,

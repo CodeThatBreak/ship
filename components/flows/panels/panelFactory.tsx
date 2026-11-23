@@ -36,8 +36,6 @@ const PANEL_BY_TYPE: Record<string, ComponentType> = {
   plan: PlanView,
   review: ReviewView,
   build: BuildView,
-  // the step_build child def shares this panel on its own child flow screen
-  step_build: BuildView,
   pipeline: PipelineView,
   resolve: ResolveView,
   start: StartView,

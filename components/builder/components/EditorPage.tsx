@@ -23,7 +23,7 @@ import {
   useNavigationGuard,
   type BlockedNavigation,
 } from "@/hooks/useNavigationGuard";
-import { isPlanDownstream, nodeRelationships } from "@/components/templateEditor/types";
+import { nodeRelationships } from "@/components/templateEditor/types";
 import type { BuilderApi } from '@/components/templateEditor/components/builder/BuilderCanvas';
 import type { IncomingLink } from '@/components/templateEditor/components/configurator/NodeConfigurator';
 import { useTemplateDraft } from "@/components/templateEditor/hooks/useTemplateDraft";
@@ -234,11 +234,6 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         }))
         .filter((l) => l.edge.to === configuring.key && l.source)
     : [];
-  // the fan-out gate (save-time lint rule 1, mirrored): the Fanout config
-  // section only applies to nodes a plan node reaches through next edges
-  const configuringPlanDownstream = configuring
-    ? isPlanDownstream(draft.nodes, draft.edges, configuring.key)
-    : true;
 
   return (
     <main className="fixed inset-0 flex flex-col bg-background">
@@ -305,7 +300,6 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         node={configuring}
         incoming={configuringIncoming}
         locked={configuringLocked}
-        planDownstream={configuringPlanDownstream}
         taskFields={taskFields}
         triggerFields={contracts.triggerFields}
         invalidRefs={configuring ? validation.invalidRefs[configuring.key] : undefined}

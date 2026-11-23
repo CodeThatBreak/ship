@@ -129,7 +129,6 @@ async function seed(status: string, index: number): Promise<{ ctx: FlowCtx; node
       status: "active",
       execution_mode: "cloud",
       mr_branch: null,
-      parent_flow_id: null,
       created_at: now(),
       updated_at: now(),
     },

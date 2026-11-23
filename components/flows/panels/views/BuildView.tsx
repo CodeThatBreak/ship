@@ -1,9 +1,8 @@
 'use client';
 import { AlertTriangle, FileDiff, GitMerge } from 'lucide-react';
-import type { BranchRow, Artifact, PlanStepRow } from '@/types/flow';
+import type { BranchRow, Artifact } from '@/types/flow';
 import PlanSteps from '../../components/plan/components/planSteps/PlanSteps';
 import { DiffView } from '../artifacts/DiffView';
-import { ARTIFACT_META } from '../artifacts/constants/artifactMeta';
 import { BranchFactRow } from '@/components/shared/BranchFactRow';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -11,7 +10,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { PanelShell, ArtifactLoader } from '../shared';
 import type { ArtifactPayload } from '../shared';
 import { useNodePanel } from '../context';
-import FanoutStepList from '../FanoutStepList';
 import { FLOW_ACTION, FLOW_STATUS } from '@/constants/flow';
 import { FLOW_EVENT_TYPE } from '@/constants/events';
 import { EmptyHint } from "@/components/shared/EmptyHint";
@@ -23,24 +21,15 @@ import { EmptyHint } from "@/components/shared/EmptyHint";
  * pipeline gate — the build stage stays in this busy state until the MR
  * exists (the engine reverts to awaiting_approval with an mr_failed event if
  * MR creation fails).
- *
- * Plan fan-out (Phase 1D): when the node fanned out, the plan checklist is
- * replaced by the step cards (per-step monitor/approve/link to the child
- * flow screen) and the whole-plan diff only appears after the aggregate
- * approval's merges.
  */
 export default function BuildView() {
   const { flow, node, action, events } = useNodePanel();
   const diffs = node.artifacts.filter((a: Artifact) => a.kind === 'diff');
-  // fan-out: the merged result is the artifact the rollup marked `fanout` — a
-  // per-step diff fact (task 25) must not displace it as the displayed diff
-  const mergedDiff = diffs.filter((a) => a.meta?.[ARTIFACT_META.FANOUT] === true).at(-1);
-  const latest = mergedDiff ?? diffs[diffs.length - 1];
+  const latest = diffs[diffs.length - 1];
   const canApprove = node.status === FLOW_STATUS.AWAITING_APPROVAL;
   const branches = flow.branches ?? [];
   const hasBranches = branches.length > 1;
   const planSteps = flow.planSteps ?? [];
-  const fannedOut = planSteps.some((s: PlanStepRow) => s.subFlow != null);
 
   const creatingMr = node.status === FLOW_STATUS.APPROVED && !hasBranches && !flow.mrUrl;
   const creatingMrBranches = new Set(
@@ -103,14 +92,9 @@ export default function BuildView() {
 
   return (
     <PanelShell node={node} flow={flow} runningLabel="Agent is implementing the plan…" footer={footer}>
-      {/* structured plan progress — the build agent checks steps off as it reports them.
-          Fanned out: the step cards replace the checklist (per-step state chips / actions). */}
-      {fannedOut ? (
-        <FanoutStepList flow={flow} node={node} />
-      ) : (
-        planSteps.length > 0 && (
-          <PlanSteps steps={planSteps} editable={false} highlight flowId={flow.id} className="mb-4" />
-        )
+      {/* structured plan progress — the build agent checks steps off as it reports them */}
+      {planSteps.length > 0 && (
+        <PlanSteps steps={planSteps} editable={false} highlight flowId={flow.id} className="mb-4" />
       )}
       {creatingMr && (
         <Alert variant="default" className="mb-3.5">

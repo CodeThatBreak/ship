@@ -9,9 +9,8 @@
  * Host-agnostic: values write straight through to the given config object —
  * the persisted `node_templates` definition on the Template Nodes page, the
  * instance override in the builder drawer. Field gating mirrors ConfigTab:
- * the agent's output schema only matters for json output, the decision's
- * prompt only for the agent source, and the fan-out knobs only show when a
- * plan node is upstream (or an override already exists, so it stays clearable).
+ * the agent's output schema only matters for json output and the decision's
+ * prompt only for the agent source.
  */
 import { ChevronRight } from "lucide-react";
 import { Spinner } from '../../../../../ui/spinner';
@@ -20,7 +19,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../../../../ui/collapsible';
-import { FANOUT_FIELD_KEYS, NODE_KIND } from "@/constants/nodeKind";
+import { NODE_KIND } from "@/constants/nodeKind";
 import { isAdvancedConfigField } from "../../../../configFieldLogic";
 import type { NodeContract } from '../../../../types';
 import { ConfigFieldRow } from "./components/ConfigFieldRow";
@@ -34,7 +33,6 @@ import {
   writeConfig,
 } from "../../../../configFieldLogic";
 import { PromptSectionField } from '../prompt/PromptSectionField';
-import { SplitConfigFields } from './components/SplitConfigFields';
 import { EffectsConfigFields } from './components/EffectsConfigFields';
 import { httpResponseVarGroups, type VarGroup } from '../../../../variables';
 
@@ -67,8 +65,6 @@ export interface DeclarativeConfigFieldsProps {
   invalidRefs?: Record<string, string>;
   /** the owning template's id — the expression editors' live preview */
   templateId?: string;
-  /** reachable from a plan node through next edges — the Fanout gate */
-  planDownstream?: boolean;
   /** field keys rendered elsewhere (the builder drawer's Prompt tab) */
   hideFields?: Set<string>;
   /** writes the whole next config object */
@@ -83,7 +79,6 @@ export function DeclarativeConfigFields({
   varGroups,
   invalidRefs,
   templateId,
-  planDownstream,
   hideFields,
   onConfigChange,
 }: DeclarativeConfigFieldsProps) {
@@ -114,12 +109,6 @@ export function DeclarativeConfigFields({
     kind === "decision"
       ? String(config.source ?? defaults.source ?? "manual")
       : undefined;
-  // the fan-out gate (save-time lint rule 1, mirrored for the editor): the
-  // shared Fanout fields render only for plan-downstream nodes. Gated off
-  // while unqualified — unless the instance already overrides one (the stale
-  // config must stay visible so the author can clear it) with a warning hint.
-  const fanoutConfigured = [...FANOUT_FIELD_KEYS].some((k) => config[k] != null);
-  const showFanout = planDownstream || fanoutConfigured;
   const isHttp = kind === NODE_KIND.HTTP;
   // the builder drawer's Config tab: prompt fields moved to the Prompt tab —
   // the create/configure dialog (no tabs) still renders them inline below
@@ -134,22 +123,12 @@ export function DeclarativeConfigFields({
         agentOutputJson ||
         config.output_schema != null,
     )
-    // the split block only matters for a json-output agent (units are
-    // schema-validated output items) — an override split stays visible so
-    // the author can clear it
-    .filter(
-      (f) =>
-        !(f.key === "split" && kind === "agent") ||
-        agentOutputJson ||
-        config.split != null,
-    )
     .filter((f) => !(kind === "decision" && f.key === "expression"))
     .filter(
       (f) =>
         !(kind === "decision" && f.key === "question") ||
         decisionSource === "agent",
     )
-    .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
     .filter((f) => !hidden.has(f.key));
   const coreFields = visibleFields.filter(
     (f) => !isAdvancedConfigField(kind, f.key),
@@ -161,25 +140,9 @@ export function DeclarativeConfigFields({
   // one renderer for both groups — the bespoke editors and their wiring are
   // identical whether a knob sits in the flat core list or under Advanced.
   const renderField = (f: ContractField) => {
-    // the split block: a bespoke nested-object editor driven by the
-    // node's compiled output schema (the array-field picker + the
-    // per-item path checks) — a plain ConfigField can't express it
-    if (f.key === "split" && kind === "agent") {
-      return (
-        <SplitConfigFields
-          key={f.key}
-          field={f}
-          split={config[f.key]}
-          output={contract.output}
-          onSplitChange={(next) =>
-            onConfigChange(writeConfig(config, f.key, next))
-          }
-        />
-      );
-    }
     // the effects block: a nested { afterApproval, afterSuccess } object
     // with a closed checkbox vocabulary — no plain ConfigField row can
-    // express it (same dispatch pattern as the split block)
+    // express it
     if (f.key === "effects") {
       return (
         <EffectsConfigFields
@@ -248,7 +211,7 @@ export function DeclarativeConfigFields({
             }
           >
             <ChevronRight className="size-3 transition-transform group-data-panel-open:rotate-90" />{" "}
-            Advanced — tools, fan-out &amp; output · {advancedFields.length}
+            Advanced — tools &amp; output · {advancedFields.length}
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="grid gap-3 pt-2">

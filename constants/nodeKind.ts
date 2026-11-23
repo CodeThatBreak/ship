@@ -27,14 +27,5 @@ export const BUILTIN_TEMPLATE_ID = {
   PLAN: "nt_plan",
 } as const;
 
-/** Plan fan-out config field keys (Config tab + declarative fields). */
-export const FANOUT_CONFIG_FIELD_KEYS = [
-  "fanout_mode",
-  "fanout_child",
-  "fanout_parallel_max",
-] as const;
-
-export const FANOUT_FIELD_KEYS = new Set<string>(FANOUT_CONFIG_FIELD_KEYS);
-
 export const isNodeKind = (value: string): value is NodeKind =>
   (NODE_KIND_VALUES as readonly string[]).includes(value);

@@ -1,24 +1,7 @@
 /**
- * Plan-domain values (§2.7): mode/knob values, action names, and statuses used
- * by the plan panel, its subcomponents, and the plan checklist.
+ * Plan-domain values (§2.7): action names and statuses used by the plan panel,
+ * its subcomponents, and the plan checklist.
  */
-
-/** Fan-out execution modes a plan can publish (plan-meta `execution`). */
-export const EXECUTION_MODE = {
-  WHOLE: 'whole',
-  STEPS: 'steps',
-} as const;
-export type PlanExecutionMode = (typeof EXECUTION_MODE)[keyof typeof EXECUTION_MODE];
-
-/** The plan node's `execution_default` knob values. */
-export const EXECUTION_KNOB = {
-  FOLLOW: 'follow',
-} as const;
-
-/** executionSource values recorded in plan-meta at approve. */
-export const EXECUTION_SOURCE = {
-  OVERRIDE: 'override',
-} as const;
 
 /** Plan-view UI-reducer actions (the panel's local state, hooks/usePlanUi.ts). */
 export const PLAN_UI_ACTION = {

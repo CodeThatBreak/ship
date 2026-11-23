@@ -16,6 +16,4 @@ export const TRANSITION_MESSAGES: Partial<Record<TransitionKey, string>> = {
   approve: "{nodeKey} approved",
   buildApprove: "{nodeKey} approved",
   cancel: "{nodeKey} stopped by user — retry when ready",
-  fanoutOutcome: "{nodeKey} {detail}",
-  splitOutcome: "{nodeKey} {detail}",
 };

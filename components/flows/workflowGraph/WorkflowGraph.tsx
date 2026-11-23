@@ -6,7 +6,7 @@ import { GraphEdges, type NodePosition } from './GraphEdges';
 import { GraphStatusChips } from './GraphStatusChips';
 import WorkflowGraphSkeleton, { GRAPH_SKELETON_HEIGHT } from './WorkflowGraphSkeleton';
 import { layout, H, W } from './graphLayout';
-import { WorkflowNodeCard, type FanoutProgress } from './NodeCard';
+import { WorkflowNodeCard } from './NodeCard';
 
 // icon resolution lives here (the template builder reuses the same set)
 export { ICONS } from './icons';
@@ -22,20 +22,14 @@ export default function WorkflowGraph({
   selected,
   onSelect,
   runningKeys,
-  fanout,
 }: {
   nodes: Node[];
   flowId?: string;
   selected: string;
   onSelect: (k: string) => void;
   /** running node keys, derived from the flow payload's node statuses — a
-   *  set because fan-out flows may run several nodes at once */
+   *  set because several nodes can be running at once */
   runningKeys: Set<string>;
-  /** plan fan-out progress per node key — rendered as the card subtitle; the
-   *  `state` field is the AGGREGATE child state driving the card colors while
-   *  the node orchestrates (its own row stays `running`): failed → red,
-   *  awaiting → warning, in-flight → info, resolved → success */
-  fanout?: Record<string, FanoutProgress>;
 }) {
   const graphQuery = useGraphDef(flowId ?? '');
   const graphDef = graphQuery.data;
@@ -92,7 +86,6 @@ export default function WorkflowGraph({
           position={positions.get(n.nodeKey) ?? { x: 0, y: 0 }}
           selected={selected === n.nodeKey}
           running={runningKeys.has(n.nodeKey)}
-          fanout={fanout?.[n.nodeKey]}
           onSelect={onSelect}
         />
       ))}

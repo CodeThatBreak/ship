@@ -10,10 +10,9 @@ import { JobQueue } from "../runtime/jobs/jobQueue";
 import type { CancelHost } from "./types/cancelHost";
 
 /**
- * FlowCancelService — stop an in-flight node (the action route's cancel and
- * the split/fan-out runtimes' child teardown), carved out of the FlowEngine
- * facade (step 07's composition-only collapse). The cancel intent is
- * journaled write-ahead (Invariant 7), then the same CancelHandler the
+ * FlowCancelService — stop an in-flight node (the action route's cancel),
+ * carved out of the FlowEngine facade (step 07's composition-only collapse).
+ * The cancel intent is journaled write-ahead (Invariant 7), then the same CancelHandler the
  * worker sweep's re-claim would run finalizes — whoever wins the claim
  * finishes, a crash in between leaves the job for the sweep.
  *
@@ -40,7 +39,7 @@ export class FlowCancelService {
     if (deduplicated) return; // a live intent owns the finalize
     const job = await jobs.claimById(jobId);
     if (!job) return; // the sweep (or a concurrent cancel) owns the finalize
-    await new CancelHandler(jobs, this.host.effects).handle(job); // a throw surfaces here; the claim's lease expiry re-claims the job
+    await new CancelHandler(jobs).handle(job); // a throw surfaces here; the claim's lease expiry re-claims the job
     await jobs.complete(jobId);
   }
 }

@@ -33,7 +33,7 @@ export interface EditorNodeRow {
   kind: string | null;
   icon: string | null;
   catalogName: string | null;
-  /** node_templates row key ("plan"/"start"/...) — the fan-out UI gate */
+  /** node_templates row key ("plan"/"start"/...) */
   catalogKey: string | null;
   isBuiltin: boolean;
   /** the backing row is local to this template (the canvas creator's rows) */

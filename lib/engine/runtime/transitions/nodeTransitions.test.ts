@@ -128,28 +128,6 @@ describe("TransitionAuthority", () => {
     })).rejects.toThrow(/cannot target/);
   });
 
-  it("publishAggregate: a stale aggregate loses to a re-claim; its own held/failed states republish", async () => {
-    const flowId = "flw_ta_aggregate";
-    await seedFlow(flowId);
-    await seedNode(flowId, "split", NODE_STATUS.PENDING);
-    const original = await authority.claim(flowId, "split", "runFromPending");
-    // the user retried the node: revert → failed, then a FRESH claim
-    await authority.apply(flowId, "split", "chatRevert", { toStatus: NODE_STATUS.FAILED });
-    await authority.claim(flowId, "split", "retry");
-    // the stale aggregate carries the ORIGINAL run's attempt — it must lose
-    expect(await authority.publishAggregate(flowId, "split", "splitOutcome", {
-      status: NODE_STATUS.DONE, output: { units: [] }, attemptId: original.attemptId,
-    })).toBe(false);
-    expect(await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='split'`, flowId))
-      .toMatchObject({ status: NODE_STATUS.RUNNING });
-    // the aggregate's own held/failed states (attempt cleared by its own
-    // earlier publish) republish — the per-unit retry path depends on it
-    await authority.apply(flowId, "split", "chatRevert", { toStatus: NODE_STATUS.FAILED });
-    expect(await authority.publishAggregate(flowId, "split", "splitOutcome", {
-      status: NODE_STATUS.DONE, output: { units: [] }, attemptId: original.attemptId,
-    })).toBe(true);
-  });
-
   it("transitionFenced reverts a claimed node to its pre-claim status", async () => {
     const flowId = "flw_ta_revert";
     await seedFlow(flowId);
@@ -163,19 +141,6 @@ describe("TransitionAuthority", () => {
       await testGet<{ status: string; agentId: string | null }>(
         `SELECT status, agent_id AS "agentId" FROM nodes WHERE id=$1`, nodeId),
     ).toMatchObject({ status: NODE_STATUS.AWAITING_APPROVAL, agentId: "agent_y" });
-  });
-
-  it("applyFlowScope skips every non-terminal node of a flow in one statement", async () => {
-    const flowId = "flw_ta_scope";
-    await seedFlow(flowId);
-    await seedNode(flowId, "unit_a", NODE_STATUS.PENDING);
-    await seedNode(flowId, "unit_b", NODE_STATUS.APPROVED);
-    await seedNode(flowId, "unit_c", NODE_STATUS.DONE);
-    const affected = await authority.applyFlowScope(flowId, "skipUnit");
-    expect(affected.sort()).toEqual(["unit_a", "unit_b"]);
-    expect(
-      await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='unit_c'`, flowId),
-    ).toMatchObject({ status: NODE_STATUS.DONE });
   });
 
   it("failFromRunning silently skips a node that already moved on", async () => {

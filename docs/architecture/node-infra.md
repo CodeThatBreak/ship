@@ -22,8 +22,6 @@ The capabilities model splits engine-only behavior from what crosses the server�
 | `chatMode` | `NodeUiCapabilities` | `'plan'` mounts `PlanNodeChat` instead of the generic `NodeChat`. |
 | `promptNode` | `NodeUiCapabilities` | Prompt preview/edit targets this node's prompt template. |
 | `panelTitle` | `NodeUiCapabilities` | Panel header title; falls back to the def's `label`. |
-| `mergeBack` | engine-only | Marks the def a code child — `StepFlowManager` invokes it on child approval (today only `step_build`). |
-| `fanoutOutput` / `splitOutput` | engine-only | Zod contracts for fan-out aggregates and per-unit split joins; `DEFAULT_FANOUT_OUTPUT` is the generic shape. |
 
 `uiCapabilities()` projects a def's capabilities onto the serializable subset for the flow snapshot — RSC serialization rejects functions and class instances, so engine-only members never leave the server.
 
@@ -36,7 +34,7 @@ The abstract root class. Each def declares:
 - **Identity and graph** — `key`, `label`, `order`, `edges` (`[target, "next" | "loop"]`), `isEntry` for the flow-opening kind.
 - **Contracts** — `inputSchema` (strict run input), `outputSchema` (persisted `output` column), `configSchema` / `configFields` (typed knobs driving the auto-generated configurator form), `outputContract()` for the Contract tab, `choices()` for decision kinds.
 - **Engine-dispatch metadata** — call sites key off these flags, never literal def keys: `builtinApproval` (approval is a builtin flow action, not generic `approve_node`), `chainRole` (`plan` | `build` | `review` | `resolve`), `resourceArtifacts`, `waitForKind`, `promptKeys` / `promptSections`.
-- **Lifecycle** — `run(ctx, input, config)` → `RunOutcome`; `triggerInput` / `triggerRuns` for auto-start bundles (multi-run for the multi-branch build); `recover()` for restart recovery; `splitUnits` / `splitResolution` / `childTemplateId` for the split and fan-out ports (defaults: not a split source, no recommendation, auto-wrap self).
+- **Lifecycle** — `run(ctx, input, config)` → `RunOutcome`; `triggerInput` / `triggerRuns` for auto-start bundles (multi-run for the multi-branch build); `recover()` for restart recovery.
 - **Persistence** — `applyOutcome` is THE one finish path (artifact, validated output, status, lifecycle event) shared by normal runs, no-run outcomes, and recovery, with optional `attempt_id` fencing via `RunSupersededError`.
 
 Shared services are constructor-injected with singleton defaults (`NodeSupport`, `FlowContextHelper`) — tests pass their own instances.
@@ -52,7 +50,7 @@ The middle tier for defs whose runs go through the agent runner — membership i
 
 ### `NodeRegistry` (`nodes/registry.ts`)
 
-- `registerBuiltins()` registers the seven builtin defs: `start`, `plan`, `build`, `step_build`, `pipeline`, `review`, `resolve` (`constants/nodeKeys.ts`).
+- `registerBuiltins()` registers the six builtin defs: `start`, `plan`, `build`, `pipeline`, `review`, `resolve` (`constants/nodeKeys.ts`).
 - `resolve(key, inst?)` falls back to the declarative resolver (wired once by `declarativeBootstrap`) for template-defined kinds — builtins by registry key, declarative kinds by their `node_templates` row id.
 - Everything else derives from the registry: `order()` (node-row creation), `edges()` (workflow graph UI), `meta()` (labels), `entryKey()` (flow start).
 
@@ -65,7 +63,6 @@ The middle tier for defs whose runs go through the agent runner — membership i
 | `templateRenderer.ts` / `templateComposer.ts` | `{{...}}` interpolation and prompt assembly against the flow context map. |
 | `extractJson.ts` | JSON extraction from agent prose (fenced blocks, trailing objects). |
 | `payloadDigest.ts` | Stable digests for dedup/idempotency. |
-| `split.ts` / `splitLookup.ts` | `SplitUnit` types and split-consume knob resolution. |
 | `branchNamer.ts` | Branch name generation (`{prefix}/{slug}-{flowIdSuffix}` and `branch_pattern` tokens). |
 | `mrTargetResolver.ts` | MR target branch resolution for chained builds. |
 | `nodeRoles.ts` | Role interfaces chat/preview dispatch through; `CHAT_DECLINED` sentinel. |
@@ -73,7 +70,7 @@ The middle tier for defs whose runs go through the agent runner — membership i
 
 ### Constants (`lib/engine/constants/`)
 
-`nodeKeys.ts` (builtin keys, `SDLC_TEMPLATE_ID`, `STEP_BUILD_TEMPLATE_ID`), `nodeStatus.ts` (the closed `NODE_STATUS` set and terminal-success test), `flowKind.ts`, `triggers.ts` (`wait_for` kinds), `vocabulary.ts`, `declarative.ts`.
+`nodeKeys.ts` (builtin keys, `SDLC_TEMPLATE_ID`), `nodeStatus.ts` (the closed `NODE_STATUS` set and terminal-success test), `flowKind.ts`, `triggers.ts` (`wait_for` kinds), `vocabulary.ts`, `declarative.ts`.
 
 ## API surface
 

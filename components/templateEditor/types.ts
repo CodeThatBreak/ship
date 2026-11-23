@@ -6,8 +6,8 @@ export interface EditorNode {
   key: string;
   /** the node_templates row backing this instance */
   nodeTemplateId: string;
-  /** the backing row's catalog key ("plan", "start", …) — builtin fan-out
-   *  gating checks it (isPlanNode) the same way the save-time lint does */
+  /** the backing row's catalog key ("plan", "start", …) — used to identify
+   *  builtin nodes (isPlanNode) the same way the save-time lint does */
   catalogKey?: string | null;
   label: string;
   overrideLabel?: string | null;
@@ -90,7 +90,7 @@ export interface NodeContract {
    * Built-ins only: the def's prompt templates as unrendered three-part
    * sections (body / locked rules / locked output contract) — the Prompt
    * tab's reference data. Absent for declarative kinds (their prompts are
-   * free-standing, no split).
+   * free-standing).
    */
   prompt?: {
     key: string;
@@ -132,9 +132,8 @@ export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog
 
 /**
  * A builtin plan node - the only kind that publishes plan-meta / the
- * plan_steps checklist (the fanout expansion's source; the save-time lint's
- * fan-out rule 1 requires exactly this shape). Mirrors isStartNode's
- * id-or-name check: the seeded row plus any future builtin "plan" row.
+ * plan_steps checklist. Mirrors isStartNode's id-or-name check: the seeded
+ * row plus any future builtin "plan" row.
  */
 export function isPlanNode(n: EditorNode): boolean {
   return (
@@ -143,36 +142,6 @@ export function isPlanNode(n: EditorNode): boolean {
       n.catalogKey === CATALOG_KEY.PLAN ||
       (n.catalogName ?? "").toLowerCase() === CATALOG_KEY.PLAN)
   );
-}
-
-/**
- * Fan-out gating (the save-time lint's rule 1, mirrored for the editor UI):
- * is `key` reachable from any plan node through `next` edges - direct or
- * transitively? Only `next` edges count (they carry execution flow; loop
- * edges re-trigger and don't join the reachability graph, same as the lint).
- */
-export function isPlanDownstream(
-  nodes: EditorNode[],
-  edges: EditorEdge[],
-  key: string,
-): boolean {
-  const upstream = new Map<string, string[]>();
-  for (const e of edges) {
-    if (e.kind !== "next") continue;
-    upstream.set(e.to, [...(upstream.get(e.to) ?? []), e.from]);
-  }
-  const seen = new Set([key]);
-  const queue = [key];
-  while (queue.length) {
-    const k = queue.shift();
-    if (k === undefined) break;
-    for (const from of upstream.get(k) ?? []) {
-      if (seen.has(from)) continue;
-      seen.add(from);
-      queue.push(from);
-    }
-  }
-  return nodes.some((n) => isPlanNode(n) && n.key !== key && seen.has(n.key));
 }
 
 /** Connection-derived relationships for one node (sidebar + configurator Inputs tab). */

@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   DEMO_FLOW_PLAN_V1,
   DEMO_FLOW_PLAN_V2,
-  FANOUT_PLAN,
 } from "../scripts/demoPlanFixtures.mjs";
 import { PlanResponse, parsePlanArtifactMeta } from "../lib/engine/nodes/kinds/plan/schema";
 
@@ -12,7 +11,7 @@ const script = (name: string) => fs.readFileSync(path.join(process.cwd(), "scrip
 
 describe("demo seed plan fixtures (turn-envelope authoring)", () => {
   it("the demo seeds carry no markdown plan-meta fence and no bespoke metaOf parse", () => {
-    for (const name of ["seed-demo-flow.mjs", "seed-demo-fanout.mjs"]) {
+    for (const name of ["seed-demo-flow.mjs"]) {
       const source = script(name);
       expect(source, `${name} still embeds a plan-meta fence`).not.toMatch(/```json plan-meta/);
       expect(source, `${name} still parses meta out of the markdown`).not.toContain("metaOf");
@@ -33,17 +32,12 @@ describe("demo seed plan fixtures (turn-envelope authoring)", () => {
     expect(v2).not.toBeNull();
     expect(v2?.steps).toHaveLength(8);
     expect(v2?.branches).toEqual([]);
-
-    const fanout = parsePlanArtifactMeta(FANOUT_PLAN.meta);
-    expect(fanout).not.toBeNull();
-    expect(fanout?.steps).toHaveLength(6);
-    expect(fanout?.branches).toEqual([]);
   });
 
   it("every fixture markdown + steps validates against the real PlanResponse contract", () => {
     // the full plan response schema (unique ids, branch membership, dependsOn
     // resolution, dependency cycles) — the same validation a live plan run gets
-    for (const fixture of [DEMO_FLOW_PLAN_V1, DEMO_FLOW_PLAN_V2, FANOUT_PLAN]) {
+    for (const fixture of [DEMO_FLOW_PLAN_V1, DEMO_FLOW_PLAN_V2]) {
       const branches = "branches" in fixture.meta ? fixture.meta.branches : undefined;
       expect(() =>
         PlanResponse.parse({
@@ -53,10 +47,5 @@ describe("demo seed plan fixtures (turn-envelope authoring)", () => {
         }),
       ).not.toThrow();
     }
-  });
-
-  it("the fanout plan publishes the execution resolution the split runtime consumes", () => {
-    expect(FANOUT_PLAN.meta.execution).toBe("steps");
-    expect(FANOUT_PLAN.meta.executionSource).toBe("knob");
   });
 });

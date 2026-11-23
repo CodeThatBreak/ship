@@ -18,8 +18,7 @@ import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
 import { mcpSourcesSchema } from "../../../templates/schemas/mcpSources";
-import { configNumber, configString, mcpSourcesOf, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
-import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split/schemas/splitKnobs";
+import { configNumber, configString, mcpSourcesOf, mcpSourceConfigFields } from "../../../templates/nodeConfig";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
 import { ReviewConsumes, ReviewInput, ReviewOutput } from "./schema";
 import {
@@ -64,9 +63,6 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     comment_style: z.enum(["inline", "summary"]).default("inline"),
     /** ambient MCP servers for agent runs (Cursor local.settingSources) */
     mcp_sources: mcpSourcesSchema,
-    // split-consumption knob (agent-node split plan §2.4 — Phase 4): default whole = today
-    split_consume: splitConsumeSchema,
-    split_parallel_max: splitParallelMaxSchema,
   });
   override readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
@@ -77,7 +73,6 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       help: "Inline per-file comments or one summary note.",
     },
     ...mcpSourceConfigFields,
-    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   private readonly gitHosts: GitHostResolver;

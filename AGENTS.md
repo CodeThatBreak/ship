@@ -8,6 +8,8 @@ Where a rule here conflicts with an existing pattern in neighboring files, follo
 
 The flow engine's architecture — the transition authority, the contract/effect layers, durable waits and leases, the trigger gateway and worker process, the engine module layout — is specified in [`docs/engine-overhaul/target-architecture.md`](docs/engine-overhaul/target-architecture.md). Read it before touching `lib/engine/**`: its invariants are acceptance criteria (each enforced by a test), not suggestions. Working recipes live in [`docs/coding-patterns.md`](docs/coding-patterns.md).
 
+> Note: `docs/engine-overhaul/target-architecture.md`, `docs/orm-migration/README.md` and `docs/review-tasks/` are referenced in this file but do not exist in this checkout. Flagged, not created.
+
 ---
 
 ## 0. Commands and Definition of Done
@@ -20,11 +22,11 @@ npm run lint         # eslint
 npm test             # vitest
 npm run check        # typecheck + lint + test
 node scripts/seed-demo-flow.mjs           # demo SDLC flow (DEMO-142); --reset removes it
-node scripts/seed-demo-fanout.mjs         # fan-out monitoring demo (DEMO-143); --reset
 node scripts/seed-branch-refine-demo.mjs  # branch-scoped refine demo (DEMO-207); --reset
 node scripts/seed-custom-flow.mjs         # custom template demo (DEMO-201); --reset
-node scripts/seed-split-smoke.mjs         # split smoke template seed; --reset
 ```
+
+The two seed scripts for the removed child-flow demos were deleted with those features; see [`docs/child-flow-removal.md`](docs/child-flow-removal.md).
 
 A task is done only when all of these are true:
 
@@ -39,7 +41,7 @@ A task is done only when all of these are true:
 
 ## 1. Safety Rules (read first)
 
-- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoUrl()` only — check `DATABASE_URL` (the target database must be `devflow`) and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-demo-fanout.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs`, `seed-split-smoke.mjs` (each accepts `--reset`).
+- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoUrl()` only — check `DATABASE_URL` (the target database must be `devflow`) and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs` (each accepts `--reset`).
 - Do not add new dependencies without asking.
 - No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
 - Ask before changing `prisma/schema.prisma`. Schema changes must be coordinated with the JSONB payload validators in `lib/db/rows.ts`, and land as a Prisma migration (`prisma migrate dev`). Enum values are sticky (removal is hard) — get status vocabularies right at authoring time.

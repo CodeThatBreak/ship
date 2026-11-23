@@ -13,9 +13,6 @@ export type FlowSummary = {
   taskSummary: string;
   mrUrl?: string;
   executionMode?: string;
-  /** plan fan-out (Phase 4): step-progress summary when a checklist is linked
-   *  to step sub-flows (`active` = children still unresolved) */
-  fanout?: { steps: number; done: number; active: boolean };
 };
 
 /** Worktree git state for one local flow row (GET /api/flows/worktree-status). */
@@ -38,16 +35,6 @@ function str(v: unknown): string {
 
 function optStr(v: unknown): string | undefined {
   return typeof v === "string" && v ? v : undefined;
-}
-
-/** Keep the fanout shape only when it is a real {steps, done} record. */
-function fanoutOf(v: unknown): FlowSummary["fanout"] {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return undefined;
-  const f = v as Record<string, unknown>;
-  const steps = typeof f.steps === "number" ? f.steps : 0;
-  const done = typeof f.done === "number" ? f.done : 0;
-  if (steps <= 0 && done <= 0) return undefined;
-  return { steps, done, active: done < steps };
 }
 
 /** The list row selects the task relation as `{ key, summary }` (Prisma row). */
@@ -73,7 +60,6 @@ export function flowSummary(row: Record<string, unknown>): FlowSummary {
     taskSummary: task.summary,
     mrUrl: optStr(row.mrUrl),
     executionMode: optStr(row.executionMode),
-    fanout: fanoutOf(row.fanout),
   };
 }
 

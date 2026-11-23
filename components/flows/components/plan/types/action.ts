@@ -1,7 +1,7 @@
 import { ACTION_TYPES } from '../constants/action';
 
 import type { PlanStepPayload } from './planTypes';
-import type { PlanExecutionMode, PLAN_STEP_STATUS } from '../constants/planConstants';
+import type { PLAN_STEP_STATUS } from '../constants/planConstants';
 
 type RetryAction = {
   type: typeof ACTION_TYPES.RETRY_AGENT;
@@ -15,7 +15,7 @@ type PlanCancelAction = {
 
 type ApproveAction = {
   type: typeof ACTION_TYPES.APPROVE;
-  payload: { executionOverride?: PlanExecutionMode };
+  payload: Record<string, never>;
 };
 
 type SetPlanStepAction = {

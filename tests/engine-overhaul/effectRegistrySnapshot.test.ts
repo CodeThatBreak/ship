@@ -25,19 +25,12 @@ beforeAll(resetTestDatabase);
 describe("SDLC effect registry snapshot (step 07)", () => {
   test("the SDLC chain's post-finish effects are exactly the declared set", () => {
     const entries = flowEngine.effects.entries();
-    // the runtime-owned child-terminal doors: fan-out + split each register
-    // one onChildTerminal under the runtime wildcard key
+    // the declarative wildcard effects — F1-guarded additions: every approval
+    // door re-fires its effect, every success door runs the post-success
+    // sequencing, both under the wildcard key
     expect(entries.filter((e) => e.defKey === EFFECT_KEY_ANY)).toEqual([
-      // the declarative wildcard effects (task 10) — F1-guarded additions:
-      // every approval door re-fires its effect, every success door runs the
-      // post-success sequencing, both under the runtime wildcard key
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterApproval" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
-      // the runtime-owned child-terminal doors: fan-out + split + subflow each
-      // register one onChildTerminal under the runtime wildcard key
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
-      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
     ]);
     // the SDLC chain's declared sequencing — the CR-before-gate afterApproval,
     // gate green → review, review done → resolve-if-open, resolve → re-gate

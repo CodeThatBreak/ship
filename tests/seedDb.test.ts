@@ -42,8 +42,7 @@ describe("DatabaseConfig.url", () => {
  */
 const CASCADE_SCRATCH_SCHEMA = `
   CREATE TABLE tasks (id TEXT PRIMARY KEY, type TEXT, key TEXT, summary TEXT);
-  CREATE TABLE flows (id TEXT PRIMARY KEY, task_id TEXT, name TEXT, status TEXT, parent_flow_id TEXT, created_at TEXT, updated_at TEXT);
-  CREATE TABLE step_merges (id TEXT PRIMARY KEY, flow_id TEXT, parent_flow_id TEXT, parent_node TEXT, status TEXT, attempts INTEGER, created_at TEXT, updated_at TEXT);
+  CREATE TABLE flows (id TEXT PRIMARY KEY, task_id TEXT, name TEXT, status TEXT, created_at TEXT, updated_at TEXT);
   CREATE TABLE hooks (id TEXT PRIMARY KEY, template_id TEXT, flow_id TEXT, node_key TEXT, secret TEXT, filter TEXT, created_at TEXT);
   CREATE TABLE plan_steps (id TEXT PRIMARY KEY, flow_id TEXT);
   CREATE TABLE events (id TEXT PRIMARY KEY, flow_id TEXT);
@@ -56,15 +55,14 @@ const CASCADE_SCRATCH_SCHEMA = `
 `;
 
 describe("deleteFlowCascade", () => {
-  it("removes child flows, hooks, and step_merges before the parent flow", () => {
+  it("removes the flow's owned rows before the flow itself", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-seed-cascade-"));
     const dbPath = path.join(dir, "cascade.db");
     const db = new Database(dbPath);
     db.exec(CASCADE_SCRATCH_SCHEMA);
 
     const taskId = "task_cascade";
-    const parentId = "flow_parent";
-    const childId = "flow_child";
+    const flowId = "flow_parent";
     const ts = new Date().toISOString();
 
     db.prepare(`INSERT INTO tasks (id, type, key, summary) VALUES (?,?,?,?)`).run(
@@ -76,26 +74,17 @@ describe("deleteFlowCascade", () => {
 
     db.prepare(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
-    ).run(parentId, taskId, "parent", "active", ts, ts);
-    db.prepare(
-      `INSERT INTO flows (id, task_id, name, status, parent_flow_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-    ).run(childId, taskId, "child", "active", parentId, ts, ts);
-
-    db.prepare(
-      `INSERT INTO step_merges (id,flow_id,parent_flow_id,parent_node,status,attempts,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run("sm_1", childId, parentId, "build", "running", 0, ts, ts);
+    ).run(flowId, taskId, "parent", "active", ts, ts);
 
     db.prepare(
       `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
        VALUES (?,?,?,?,?,?,?)`,
-    ).run("hk_1", null, parentId, "plan", "secret", null, ts);
+    ).run("hk_1", null, flowId, "plan", "secret", null, ts);
 
-    deleteFlowCascade(db, parentId);
+    deleteFlowCascade(db, flowId);
 
-    expect(db.prepare(`SELECT id FROM flows WHERE id IN (?,?)`).all(parentId, childId)).toEqual([]);
-    expect(db.prepare(`SELECT id FROM hooks WHERE flow_id=?`).all(parentId)).toEqual([]);
-    expect(db.prepare(`SELECT id FROM step_merges WHERE parent_flow_id=?`).all(parentId)).toEqual([]);
+    expect(db.prepare(`SELECT id FROM flows WHERE id=?`).all(flowId)).toEqual([]);
+    expect(db.prepare(`SELECT id FROM hooks WHERE flow_id=?`).all(flowId)).toEqual([]);
     db.close();
     fs.rmSync(dir, { recursive: true, force: true });
   });

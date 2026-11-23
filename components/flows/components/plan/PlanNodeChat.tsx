@@ -5,7 +5,7 @@ import ChatPanelSkeleton from '@/components/chat/feed/ChatPanelSkeleton';
 import { FLOW_ACTION } from '@/constants/flow';
 import { useNodePanel, useNodeChatBindings } from '../../panels';
 import { usePlanComposer } from './hooks/usePlanComposer/planComposerExports';
-import type { BranchPlan } from './types/planTypes';
+import type { RefineBranch } from './types/planTypes';
 
 import { MAIN_THREAD_CONFIG, REFINE_HINT } from './constants/thread';
 
@@ -20,7 +20,7 @@ export default function PlanNodeChat() {
   const { busy, nodeKeysByNodeId, nodeStatusByNodeId } = useNodeChatBindings();
 
   // Todo: Add a generic in usePaneNode
-  const branches = node.output?.branches as BranchPlan[] | null;
+  const branches = node.output?.branches as RefineBranch[] | null;
   const threads = useMemo(() => {
     // If there are not branches, we don't need to show threads
     if (!branches?.length) return [];

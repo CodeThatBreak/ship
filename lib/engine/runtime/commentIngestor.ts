@@ -26,7 +26,7 @@ export class CommentIngestor {
             id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
             mrBranch: true, repoUrl: true, gitlabProjectId: true,
             executionMode: true, repoId: true, templateId: true, templateGraph: true,
-            triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
+            triggerPayload: true, worktreeDir: true, kind: true,
             createdAt: true, updatedAt: true,
           },
         },
@@ -50,7 +50,7 @@ export class CommentIngestor {
         id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
         mrBranch: true, repoUrl: true, gitlabProjectId: true,
         executionMode: true, repoId: true, templateId: true, templateGraph: true,
-        triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
+        triggerPayload: true, worktreeDir: true, kind: true,
         createdAt: true, updatedAt: true,
       },
     });

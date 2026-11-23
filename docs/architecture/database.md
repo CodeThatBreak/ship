@@ -178,7 +178,7 @@ The builtin catalog is seeded idempotently (deterministic ids,
 `prisma migrate deploy` (dev, test, prod) leaves the database with:
 
 - `node_templates` rows for the builtin node keys: `start`, `plan`, `build`,
-  `step_build`, `pipeline`, `review`, `resolve` — plus the declarative starter
+  `pipeline`, `review`, `resolve` — plus the declarative starter
   catalog rows (`docs_summary`, `docs_write`, `release_notes`, `ship_decision`,
   `notify_slack`, `triage_agent`, `worth_fixing`, `open_pr`, `triage_notify`).
 - The SDLC loop flow template `tpl_sdlc_loop` (`SDLC_TEMPLATE_ID` in
@@ -186,8 +186,6 @@ The builtin catalog is seeded idempotently (deterministic ids,
   triggers) and `flow_template_edges`, including the `resolve → pipeline` loop
   edge conditioned on the JSONata expression
   `nodes.resolve.output.pushed = true`.
-- The step-build child template `tpl_step_build` (`STEP_BUILD_TEMPLATE_ID`)
-  used by plan fan-out (`hidden` — referenced by id, not the gallery picker).
 - The three starter flow templates (`tpl_docs_generation`,
   `tpl_release_notify`, `tpl_sentry_triage`).
 
@@ -214,7 +212,7 @@ The subsystem owns no HTTP routes; consumers import from `@/lib/db/app`.
 `prisma/schema.prisma` is the source of truth. Table inventory by domain:
 
 - **Tasks and flows:** `tasks`, `flows`, `nodes`, `artifacts`, `runs`,
-  `branches`, `plan_steps`, `step_merges`.
+  `branches`, `plan_steps`.
 - **Engine durability:** the `jobs` table (write-ahead journal for
   webhook deliveries, schedule fires, MR creation, cancels — `dedup_key`,
   lease-based claims, attempt counts) plus the correctness columns
@@ -244,8 +242,8 @@ verification; demo/dev targets only).
 
 ## Out of scope
 
-- Engine semantics of the persisted rows (node lifecycle, run claims,
-  fan-out) — covered by the flow-engine code and node docs such as
+- Engine semantics of the persisted rows (node lifecycle, run claims) —
+  covered by the flow-engine code and node docs such as
   [`plan-node.md`](./plan-node.md).
 - Integration API clients that consume the unsealed tokens
   (`lib/integrations/**`).

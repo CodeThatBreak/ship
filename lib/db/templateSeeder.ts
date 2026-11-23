@@ -2,7 +2,7 @@ import "server-only";
 
 import type { EdgeKind, NodeTemplateKind, PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
-import { SDLC_TEMPLATE_ID, NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../engine/constants/nodeKeys";
+import { SDLC_TEMPLATE_ID, NODE_KEYS } from "../engine/constants/nodeKeys";
 
 type NodeTemplateSeed = {
   readonly id: string;
@@ -77,9 +77,7 @@ export class TemplateSeeder {
       // id, key, name, description, icon
       { id: "nt_start", key: NODE_KEYS.START, name: "Start", description: "The template's entry node — carries the branch trigger, then finishes immediately", icon: "Play" },
       { id: "nt_plan", key: NODE_KEYS.PLAN, name: "Plan", description: "Plan the implementation on a planning agent", icon: "Compass" },
-      { id: "nt_subflow", key: NODE_KEYS.SUBFLOW, name: "Subflow", description: "Delegate to one child flow from a chosen template — the child's terminal output publishes as this node's aggregate", icon: "GitFork" },
       { id: "nt_build", key: NODE_KEYS.BUILD, name: "Build", description: "Implement the approved plan on an agent", icon: "Hammer" },
-      { id: "nt_step_build", key: NODE_KEYS.STEP_BUILD, name: "Step build", description: "One plan step built by its own child flow (plan fan-out) — per-step branch, diff and approval", icon: "Hammer" },
       { id: "nt_pipeline", key: NODE_KEYS.PIPELINE, name: "Pipeline", description: "Wait for a green CI pipeline, fixing failures", icon: "Gauge" },
       { id: "nt_review", key: NODE_KEYS.REVIEW, name: "Review", description: "AI review of the MR diff", icon: "ScanSearch" },
       { id: "nt_resolve", key: NODE_KEYS.RESOLVE, name: "Resolve", description: "Address open MR comments", icon: "CheckCheck" },
@@ -204,45 +202,6 @@ export class TemplateSeeder {
           updatedAt: now,
         }],
         skipDuplicates: true,
-      });
-    }
-
-    // ── Plan fan-out: the built-in step template ────────────────────────────
-    // The child template a fan-out `build` node defaults to (`child` unset).
-    // `hidden` keeps it out of the gallery (it is a child template; the fan-out
-    // knob references it by id, never the picker).
-    const stepBuildTemplate = await tx.flowTemplate.findUnique({
-      where: { id: STEP_BUILD_TEMPLATE_ID },
-      select: { id: true },
-    });
-    if (!stepBuildTemplate) {
-      await tx.flowTemplate.create({
-        data: {
-          id: STEP_BUILD_TEMPLATE_ID,
-          name: "Step build",
-          description: "One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node).",
-          version: 1,
-          isBuiltin: true,
-          trigger: { type: "manual" },
-          hidden: true,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-      await tx.flowTemplateNode.create({
-        data: {
-          id: "ftn_tpl_step_build_step_build",
-          templateId: STEP_BUILD_TEMPLATE_ID,
-          nodeKey: NODE_KEYS.STEP_BUILD,
-          nodeTemplateId: "nt_step_build",
-          label: null,
-          trigger: { type: "approval" },
-          joinMode: "all",
-          config: {},
-          inputMap: {},
-          createdAt: now,
-          updatedAt: now,
-        },
       });
     }
 

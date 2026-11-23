@@ -3,12 +3,10 @@ import "server-only";
 import type { NodeDefinition } from "../shared/nodeSharedExports";
 import { PlanNode } from "../kinds/plan/planExports";
 import { BuildNode } from "../kinds/build/buildExports";
-import { StepBuildNode } from "../kinds/build/stepBuildNode";
 import { PipelineNode } from "../kinds/pipeline/pipelineExports";
 import { ReviewNode } from "../kinds/review/reviewExports";
 import { ResolveNode } from "../kinds/resolve/resolveExports";
 import { StartNode } from "../kinds/start/startExports";
-import { SubflowNode } from "../kinds/subflow/subflowExports";
 import { wiredDeclarativeResolver } from "../utils/declarativeResolverWire";
 
 /**
@@ -46,11 +44,9 @@ export class NodeRegistry {
     this.register(new StartNode());
     this.register(new PlanNode());
     this.register(new BuildNode());
-    this.register(new StepBuildNode()); // plan fan-out step child (Phase 1C)
     this.register(new PipelineNode());
     this.register(new ReviewNode());
     this.register(new ResolveNode());
-    this.register(new SubflowNode()); // task 26 — the declarative subflow delegation (config IS SubflowDefSchema)
   }
 
   /** Get a node definition by key, or throw. */

@@ -8,14 +8,13 @@ import type { EffectCtx, EffectHandler, NodeEffects } from "./types/nodeEffects"
  * (Invariant 8, target-architecture §7). Node kinds and runtimes register
  * effects keyed by `(defKey, lifecycle)` at engine boot (the FlowEngine
  * constructor — the same boot point that wires the runtimes); the StageRunner
- * consults it after every terminal outcome, the approval door dispatches
- * `afterApproval` on a won approve, and the fan-out/split child-terminal
- * notifications arrive as `onChildTerminal` registrations.
+ * consults it after every terminal outcome, and the approval door dispatches
+ * `afterApproval` on a won approve.
  *
  * Invariants:
  * - Registrations are DATA — the implementations stay in their owning modules
- *   (`sdlcEffects` over the SDLC chain, the fan-out/split runtimes). Never
- *   park sequencing logic in this class.
+ *   (`sdlcEffects` over the SDLC chain, the declarative effects). Never park
+ *   sequencing logic in this class.
  * - Effect-driven stage starts claim through the TriggerGateway (the effects
  *   close over the engine's gateway-backed primitives), so a lost claim emits
  *   the same typed `skipped_duplicate_trigger` event a user click would.

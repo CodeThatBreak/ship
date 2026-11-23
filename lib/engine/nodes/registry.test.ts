@@ -1,8 +1,8 @@
 /**
  * T3 (node-definition refactor, phase 4): the catalog contract — exactly one
  * def per SDLC chain role (the first in graph order being the built-in), the
- * builtinApproval flags, the single pipeline wait source, the plan resource
- * artifact, and the build def's fan-out child.
+ * builtinApproval flags, the single pipeline wait source, and the plan
+ * resource artifact.
  *
  * Runs against an isolated temp SQLite DB: DATABASE_PATH is read lazily by
  * lib/config.ts, so setting it before the first `db` import isolates the
@@ -21,7 +21,7 @@ process.env.DATABASE_PATH = path.join(
 );
 
 const { nodeRegistry } = await import("./registry");
-const { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } = await import("../constants/nodeKeys");
+const { NODE_KEYS } = await import("../constants/nodeKeys");
 
 describe("NodeDefinition engine-dispatch metadata (T3)", () => {
   it("the first def holding each SDLC chain role is the built-in kind", () => {
@@ -53,13 +53,5 @@ describe("NodeDefinition engine-dispatch metadata (T3)", () => {
 
   it("the plan kind publishes the plan artifact as its first-class resource", () => {
     expect([...nodeRegistry.get(NODE_KEYS.PLAN).resourceArtifacts]).toEqual([NODE_KEYS.PLAN]);
-  });
-
-  it("the build def's fan-out fallback is the seeded step build; other defs auto-wrap", () => {
-    expect(nodeRegistry.get(NODE_KEYS.BUILD).childTemplateId()).toBe(STEP_BUILD_TEMPLATE_ID);
-    expect(nodeRegistry.get(NODE_KEYS.PLAN).childTemplateId()).toBeNull();
-    expect(nodeRegistry.get(NODE_KEYS.REVIEW).childTemplateId()).toBeNull();
-    expect(nodeRegistry.get(NODE_KEYS.RESOLVE).childTemplateId()).toBeNull();
-    expect(nodeRegistry.get(NODE_KEYS.PIPELINE).childTemplateId()).toBeNull();
   });
 });

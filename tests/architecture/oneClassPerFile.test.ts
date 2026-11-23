@@ -49,7 +49,6 @@ const FROZEN_MISNAMED: readonly string[] = [
   "lib/engine/nodes/kinds/plan/planContext.ts",
   "lib/engine/nodes/kinds/plan/planContract.ts",
   "lib/engine/nodes/kinds/plan/planPrompt.ts",
-  "lib/engine/nodes/kinds/plan/planSplit.ts",
   "lib/engine/nodes/kinds/resolve/resolveContract.ts",
   "lib/engine/nodes/kinds/script/scriptNode.ts",
   // step-02 doc mandate: the TransitionAuthority lives in `nodeTransitions.ts`

@@ -23,7 +23,6 @@ import type { GraphDef } from "../hooks/useGraphDef";
 export const ICONS: Record<string, LucideIcon> = {
   plan: Compass,
   build: Hammer,
-  step_build: Hammer,
   pipeline: Gauge,
   review: ScanSearch,
   resolve: CheckCheck,

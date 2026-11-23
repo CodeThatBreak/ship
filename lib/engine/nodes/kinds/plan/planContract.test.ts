@@ -33,8 +33,6 @@ const makeContract = () => {
     meta?: unknown;
     text?: string;
     planMeta?: unknown;
-    plannerExecution?: unknown;
-    knob?: string;
   }[] = [];
   const support = {
     nodeByKey: () => ({ id: 'node-1', node_key: 'plan', status: 'awaiting_approval' }),
@@ -46,17 +44,8 @@ const makeContract = () => {
   const store = {
     // no previous version in this stubbed world — provenance records version 0
     latestPlan: () => null,
-    normalizePlannerExecution: (w: unknown) =>
-      (w as { execution?: string })?.execution === 'steps'
-        ? { value: 'steps', rationale: null }
-        : { value: 'whole', rationale: null },
-    persistPlan: (args: { text: string; planMeta: unknown; plannerExecution: unknown; knob: string }) => {
-      saved.push({
-        text: args.text,
-        planMeta: args.planMeta,
-        plannerExecution: args.plannerExecution,
-        knob: args.knob,
-      });
+    persistPlan: (args: { text: string; planMeta: unknown }) => {
+      saved.push({ text: args.text, planMeta: args.planMeta });
       return { art: { id: 'art_new', version: 7 }, stepCount: 2 };
     },
   } as unknown as PlanStore;
@@ -68,7 +57,7 @@ const makeContract = () => {
       throw new Error('retry should not start an agent in this test');
     },
   } as unknown as AgentRunner;
-  const contract = new PlanOutputContract(support, store, runner, () => Promise.resolve('whole'), 'Plan');
+  const contract = new PlanOutputContract(support, store, runner, 'Plan');
   return { contract, saved };
 };
 
@@ -137,8 +126,6 @@ describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
         plan: {
           markdown: '# P',
           steps: [{ id: 's1', title: 'T', detail: '', files: [], branch: null }],
-          execution: 'steps',
-          execution_rationale: 'independent',
         },
       }),
       null
@@ -148,9 +135,8 @@ describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
     expect(outcome.output).toMatchObject({ latestArtifact: 'art_new', version: 7 });
     expect(outcome.event).toBe('plan v7 ready for review · 2 steps');
     expect(saved[0]?.text).toBe('# P');
-    const persisted = saved[0] as { planMeta: { steps: { id: string }[] }; plannerExecution: { value: string } };
+    const persisted = saved[0] as { planMeta: { steps: { id: string }[] } };
     expect(persisted.planMeta.steps[0].id).toBe('s1');
-    expect(persisted.plannerExecution.value).toBe('steps');
   });
 });
 

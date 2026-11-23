@@ -10,7 +10,7 @@ last_reviewed: 2026-10-31
 
 ## Summary
 
-The plan node produces an **implementation plan**: a versioned markdown document, a checklist (`plan_steps`), and optional **branches** for per-branch child flows at build time. It is the flow’s primary planning step and the only node that uses **`chatMode: 'plan'`**: the chat composer is the single input surface—prefilled with the plan template before v1, then as a multi-thread conversation (main + one tab per branch).
+The plan node produces an **implementation plan**: a versioned markdown document, a checklist (`plan_steps`), and optional **branches** that scope per-branch refine turns. It is the flow’s primary planning step and the only node that uses **`chatMode: 'plan'`**: the chat composer is the single input surface—prefilled with the plan template before v1, then as a multi-thread conversation (main + one tab per branch).
 
 **All agent turns** (first plan, whole-plan changes, branch sub-plan changes) go through **`POST /api/flows/:id/chat`**. The engine’s **`PlanNode.turn()`** routes by artifact count and optional **`thread`** (branch name). Output uses one envelope: **`PlanTurnOutput`** (`reply` + optional `plan` | `subPlan` | `subPlanPatch`).
 
@@ -60,9 +60,9 @@ Invalid branch name → **400** on send.
 - **`PlanView`** — versions, master plan, branch cards, **`PlanSteps`** editor.
 - Actions: **`update_plan_steps`**, **`set_plan_step`**, version tab selection (local UI).
 
-### Approve and fan-out
+### Approve
 
-- **`approve_plan`** with optional **`executionOverride`** → build / per-branch split per published execution meta.
+- **`approve_plan`** → **`approved`** → build.
 
 ```mermaid
 flowchart LR
@@ -72,7 +72,7 @@ flowchart LR
     B -->|branch thread subPlan or patch| B
   end
   subgraph ship [Approve]
-    B -->|approve_plan| C[approved → build / split]
+    B -->|approve_plan| C[approved → build]
   end
 ```
 
@@ -120,11 +120,11 @@ flowchart LR
 
 **`PlanNode.turn(ctx, content, { model?, thread? })`** — single entry from **`sendChat`**. Dispatches pre-publish, whole, or branch turns; **`PlanOutputContract.applyTurnResult`** parses **`PlanTurnOutput`**.
 
-Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**, **`PlanOutputContract`**, **`BranchRefinement`** (merge + patch), **`PlanSplitter`**, **`PlanAgentSessions`** (`branchAgents` on node output).
+Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**, **`PlanOutputContract`**, **`BranchRefinement`** (merge + patch), **`PlanAgentSessions`** (`branchAgents` on node output).
 
-### Approval and fan-out
+### Approval
 
-**`flowEngine.approvePlan`** → **`advanceFrom(planKey)`**; build reads **`splitUnits`** / **`splitResolution`** when execution is per-branch.
+**`flowEngine.approvePlan`** → **`advanceFrom(planKey)`** → build.
 
 ### Key files
 
@@ -156,7 +156,7 @@ Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**
 
 ## Data model (high level)
 
-- **Artifacts:** kind `plan`; meta includes `steps`, `branches`, **`refinedFrom`**, **`scopedRefine`**, execution fields.
+- **Artifacts:** kind `plan`; meta includes `steps`, `branches`, **`refinedFrom`**, **`scopedRefine`**, `feedback`.
 - **Output JSON:** `latestArtifact`, `version`, optional **`branches`**, **`branchAgents`** (per-branch harness ids).
 - **`plan_steps`** synced on each published plan meta.
 
@@ -172,5 +172,4 @@ Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**
 
 ## Out of scope
 
-- StepFlowManager / per-checklist-step child flows.
 - Template editor / YAML import for plan knobs.

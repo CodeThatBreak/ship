@@ -4,10 +4,8 @@ import { db } from "../../../db/app";
 import type { Prisma } from "@prisma/client";
 import type { QueryExecutor } from "../../../db/database";
 import { NODE_KEYS } from "../../constants/nodeKeys";
-import { childFlowHasStarted, isNodeStarted } from "../transitions/constants/statusSets";
 import type { PlanStepDelegate, PlanStepInput, PlanStepRow } from "./types/planStep";
 import { toRow } from "./utils/toPlanStepRow";
-import { engineParts } from "@/lib/composition/container";
 
 /** SQL store for plan steps (§12 `runtime/stores/`): the plan node's checklist — rows, ordering, per-branch scoping — and the Markdown projection injected into the build prompt. Owns plan-step reads/writes only; never node status or flow rows. */
 export class PlanStepStore {
@@ -101,13 +99,9 @@ export class PlanStepStore {
       }
     }
 
-    // supersede agent steps that vanished from the new plan version — with the
-    // fan-out guard: a step whose child has started/merged survives the refine
-    const guard = await this.deletableGuard(flowId);
+    // supersede agent steps that vanished from the new plan version
     for (const prev of existingAgent) {
       if (!seen.has(prev.id) && prev.artifactId !== artifactId) {
-        if (guard.built.has(prev.id)) continue; // sub-flow running/merged — kept, not deleted
-        await this.cancelChildFlow(guard.cancelable.get(prev.id) ?? null);
         await db.prisma.planStep.delete({ where: { id: prev.id } });
       }
     }
@@ -115,10 +109,8 @@ export class PlanStepStore {
   }
 
   /** Replace the full step list from the Plan view's editor (bulk save).
-   *  Matched rows update in place (status, origin, meta_id, sub_flow_id preserved).
-   *  Started/merged fan-out steps keep their editor index; unmatched survivors
-   *  append at the tail. Rows removed from the editor are deleted (pending
-   *  children cancelled via flowEngine guards). */
+   *  Matched rows update in place (status, origin, meta_id preserved); rows
+   *  removed from the editor are deleted. */
   async replace(
     flowId: string,
     artifactId: string | null,
@@ -126,10 +118,8 @@ export class PlanStepStore {
     opts: { matchedRows?: Map<number, string> } = {},
   ): Promise<PlanStepRow[]> {
     const ts = new Date();
-    const guard = await this.deletableGuard(flowId);
     const existing = await this.list(flowId);
     const existingById = new Map(existing.map((s) => [s.id, s]));
-    const survivors = existing.filter((s) => guard.built.has(s.id));
     const matchedRows = opts.matchedRows ?? new Map<number, string>();
 
     await db.transaction(async (tx) => {
@@ -169,7 +159,6 @@ export class PlanStepStore {
               branch: s.branch ?? null,
               status: "pending",
               origin: "user",
-              subFlowId: null,
               createdAt: ts,
               updatedAt: ts,
             },
@@ -177,19 +166,8 @@ export class PlanStepStore {
         }
       }
 
-      let tail = steps.length;
-      for (const survivor of survivors) {
-        if (kept.has(survivor.id)) continue;
-        kept.add(survivor.id);
-        await stepTx.update({
-          where: { id: survivor.id },
-          data: { position: tail++, updatedAt: ts },
-        });
-      }
-
       for (const row of existing) {
         if (kept.has(row.id)) continue;
-        await this.cancelChildFlow(guard.cancelable.get(row.id) ?? null, tx);
         await stepTx.delete({ where: { id: row.id } });
       }
     });
@@ -207,9 +185,6 @@ export class PlanStepStore {
     const ts = new Date();
     const existing = (await this.list(flowId)).filter((s) => s.branch === branchName);
     if (!existing.length && !steps.length) return 0;
-    // fan-out guard: rows whose child sub-flow started/merged are rebuilt with
-    // their linkage intact (status/completed_by/sub_flow_id survive the refine)
-    await this.deletableGuard(flowId);
     const stateByMetaId = new Map(
       existing
         .filter((s): s is PlanStepRow & { metaId: string } => s.metaId != null)
@@ -237,7 +212,6 @@ export class PlanStepStore {
             status,
             origin: "agent",
             completedBy,
-            subFlowId: prev?.subFlowId ?? null,
             createdAt: ts,
             updatedAt: ts,
           },
@@ -245,42 +219,6 @@ export class PlanStepStore {
       }
     });
     return steps.length;
-  }
-
-  /**
-   * Fan-out deletion guard: which linked steps are protected (a child that has
-   * started/merged) and which pending children a removal would cancel. No
-   * fan-out rows → a no-op; whole-mode checklists never touch these paths.
-   */
-  private async deletableGuard(flowId: string): Promise<{ built: Set<string>; cancelable: Map<string, string> }> {
-    const linked = await db.prisma.planStep.findMany({
-      where: { flowId, subFlowId: { not: null } },
-      select: { id: true, subFlowId: true },
-    });
-    const built = new Set<string>();
-    const cancelable = new Map<string, string>();
-    for (const s of linked) {
-      if (!s.subFlowId) continue;
-      const started = childFlowHasStarted(await engineParts.nodeStore.statusesOfFlow(s.subFlowId));
-      if (started) built.add(s.id);
-      else cancelable.set(s.id, s.subFlowId);
-    }
-    return { built, cancelable };
-  }
-
-  /** Close a child flow on checklist removal (child with no run). */
-  private async cancelChildFlow(childFlowId: string | null, tx?: Prisma.TransactionClient): Promise<void> {
-    if (!childFlowId) return;
-    const client = tx ?? db.prisma;
-    const nodes = await client.node.findMany({
-      where: { flowId: childFlowId },
-      select: { status: true },
-    });
-    if (nodes.some((n) => isNodeStarted(n.status))) return; // never closed silently
-    await client.flow.updateMany({
-      where: { id: childFlowId, status: { not: "done" } },
-      data: { status: "done", updatedAt: new Date() },
-    });
   }
 
   async setStatus(

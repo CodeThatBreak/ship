@@ -54,7 +54,6 @@ const seedLocalFlow = async (index: number, mrBranch: string | null): Promise<{ 
       status: "active",
       executionMode: "local",
       mrBranch,
-      parentFlowId: null,
       createdAt: now(),
       updatedAt: now(),
     },

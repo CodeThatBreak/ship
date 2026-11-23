@@ -3,10 +3,6 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
 import { NodeTemplateRow } from "../../db/rows";
-import { NODE_KEYS } from "../constants/nodeKeys";
-import { lintPlanExecution } from "./lintPlanExecution";
-import { lintAgentSplit } from "./lintAgentSplit";
-import { lintFanoutRules } from "./lintFanout";
 import { buildNodeContracts, inheritedInputFields, makeAddressesOutput } from "./lintContracts";
 import { lintDecisionJsonata, lintEdgeConditions, lintHttpJsonata, lintInputMapJsonata, lintNeedsSatisfiability } from "./lintExpressions";
 import { lintRef } from "./lintRefs";
@@ -31,9 +27,9 @@ import type { CatalogEntry, LintEdge, LintNode, TaskUniverse } from "./lintTypes
  *
  * `lintTemplate` is the orchestrator; the rules live in their own modules:
  * `lintContracts` (output contracts + trigger/start-contract checks),
- * `lintFanout` (fan-out rules 1–3), `lintRefs` ({{...}} reference rules),
- * `lintExpressions` (JSONata checks + the fact-need satisfiability walk), `lintAgentSplit` (split-knob rules),
- * `lintNodeTrigger`, `lintPlanExecution`, `outputFields`.
+ * `lintRefs` ({{...}} reference rules),
+ * `lintExpressions` (JSONata checks + the fact-need satisfiability walk),
+ * `lintNodeTrigger`, `outputFields`.
  */
 
 /** One lint problem, structured (Phase 3): where it came from — `node "x"` /
@@ -72,8 +68,6 @@ export const lintTemplate = async (
   const contractOfKey = buildNodeContracts(nodes, catalog, problems);
   const addressesOutput = makeAddressesOutput(contractOfKey);
 
-  await lintFanoutRules(nodes, edges, catalog, problems);
-
   for (const n of nodes) {
     const nt = catalog[n.nodeTemplateId];
 
@@ -102,18 +96,6 @@ export const lintTemplate = async (
       // http response_map compiles
       if (nt.kind === "http") {
         lintHttpJsonata(cfg, n, problems);
-      }
-      // the agent split knobs (agent-node split plan Phase 3): the authoring
-      // checks the configurator only hints at — loud at save, like every
-      // static rule here
-      if (nt.kind === "agent") {
-        await lintAgentSplit(shallowMerge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
-      }
-      // the plan node's execution knob (step 09): the retired per-step
-      // "steps" value is a template error at save/import, not a silent
-      // degrade — the knob domain is whole | follow
-      if (nt.isBuiltin && nt.key === NODE_KEYS.PLAN) {
-        lintPlanExecution(shallowMerge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
       }
     }
   }

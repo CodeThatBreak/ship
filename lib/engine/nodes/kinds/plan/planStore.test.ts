@@ -1,6 +1,6 @@
 /**
- * PlanStore — the latest-plan/meta parsing, the scoped-refine bundle, the
- * planner-execution normalization, and the two plan-version publish paths.
+ * PlanStore — the latest-plan/meta parsing, the scoped-refine bundle, and the
+ * plan-version publish path.
  *
  * Shared dockerized test database (AGENTS.md §1 — truncated per file); class instances get a stub
  * NodeSupport so the store's calls are observable without touching real rows
@@ -16,7 +16,6 @@ beforeAll(resetTestDatabase);
 
 await import('../../registry');
 const { PlanStore } = await import('./planStore');
-import type { PlanStore as PlanStoreT } from './planStore';
 import type { PlanBranch, PlanMeta, PlanStep } from './schema';
 import type { FlowCtx, NodeSupport } from '../../shared/nodeSharedExports';
 import type { NodeRow } from '../../../../db/rows';
@@ -116,13 +115,13 @@ describe('PlanStore.scopedRefine — the ref-count bundle or null', () => {
       db.now(), db.now()
     );
     await testRun(
-      `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-       VALUES ('r1','flow-1',NULL,'s1',0,'A',NULL,'[]','auth','pending','agent',NULL,NULL,$1,$2)`,
+      `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,created_at,updated_at)
+       VALUES ('r1','flow-1',NULL,'s1',0,'A',NULL,'[]','auth','pending','agent',NULL,$1,$2)`,
       db.now(), db.now()
     );
     await testRun(
-      `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-       VALUES ('r2','flow-1',NULL,'s2',1,'B',NULL,'[]','billing','pending','agent',NULL,NULL,$1,$2)`,
+      `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,created_at,updated_at)
+       VALUES ('r2','flow-1',NULL,'s2',1,'B',NULL,'[]','billing','pending','agent',NULL,$1,$2)`,
       db.now(), db.now()
     );
     const scoped = await full().scopedRefine('flow-1', 'auth');
@@ -152,63 +151,18 @@ describe('PlanStore.stepsText / dependencySummaries', () => {
   });
 });
 
-describe('PlanStore.normalizePlannerExecution — lenient planner decision', () => {
-  const store = new PlanStore(supportWith(null));
+describe('PlanStore.persistPlan — the artifact meta rides every version', () => {
+  const meta = (): PlanMeta => ({ steps: [], branches: [branch('auth')] });
 
-  it('missing/unknown execution normalizes to whole, never a failure', () => {
-    expect(store.normalizePlannerExecution(null)).toEqual({ value: 'whole', rationale: null });
-    expect(store.normalizePlannerExecution({})).toEqual({ value: 'whole', rationale: null });
-    expect(store.normalizePlannerExecution({ execution: 'weird', execution_rationale: 'why' })).toEqual({
-      value: 'whole',
-      rationale: 'why',
-    });
-  });
-
-  it('steps + rationale keep a trimmed rationale', () => {
-    expect(store.normalizePlannerExecution({ execution: 'steps', execution_rationale: '  why  ' })).toEqual({
-      value: 'steps',
-      rationale: 'why',
-    });
-    expect(store.normalizePlannerExecution({ execution: 'steps' })).toEqual({ value: 'steps', rationale: null });
-  });
-});
-
-describe('PlanStore.persistPlan — published execution rides every version', () => {
-  const meta = (overrides: Record<string, unknown> = {}): PlanMeta => ({
-    steps: [],
-    branches: [branch('auth')],
-    ...overrides,
-  });
-  const persist = (store: PlanStoreT, knob: 'whole' | 'follow', plannerExecution?: unknown) => {
+  it('publishes feedback, branches and steps', async () => {
     savedMetas = [];
-    return store.persistPlan({
+    await new PlanStore(supportWith(null)).persistPlan({
       ctx,
       node,
       userMessage: 'fb',
       text: '# plan',
       planMeta: meta(),
-      ...(plannerExecution !== undefined ? { plannerExecution: plannerExecution as never } : {}),
-      knob,
     });
-  };
-
-  it('knob whole publishes source "knob"', async () => {
-    await persist(new PlanStore(supportWith(null)), 'whole');
-    expect(metaOf(0)).toMatchObject({ feedback: 'fb', execution: 'whole', executionSource: 'knob' });
-    expect(metaOf(0)).not.toHaveProperty('execution_rationale');
-  });
-
-  it('follow publishes the planner decision as source "planner"', async () => {
-    await persist(new PlanStore(supportWith(null)), 'follow', { value: 'steps', rationale: 'independent branches' });
-    expect(metaOf(0)).toMatchObject({
-      execution: 'steps',
-      executionSource: 'planner',
-      execution_rationale: 'independent branches',
-    });
-  });
-
-  it('follow with nothing published publishes whole as source "default"', async () => {
-    await persist(new PlanStore(supportWith(null)), 'follow');
-    expect(metaOf(0)).toMatchObject({ execution: 'whole', executionSource: 'default' });
+    expect(metaOf(0)).toEqual({ feedback: 'fb', branches: [branch('auth')], steps: [] });
   });
 });

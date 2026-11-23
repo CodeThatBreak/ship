@@ -1,11 +1,10 @@
 /**
- * Plan fixtures shared by the demo seeds (DEMO-142, DEMO-143) and their
- * fixture test — the authored turn-envelope shape the plan node publishes:
- * clean plan markdown plus the meta object `planStore.persistPlan` writes
- * into `artifacts.meta` (`{ feedback, steps, branches, execution,
- * executionSource, execution_rationale }` — only the fields a demo story
- * needs). No markdown plan-meta fence in the markdown: the parser never reads
- * the markdown, it reads the artifact's JSONB meta column.
+ * Plan fixtures shared by the demo seed (DEMO-142) and its fixture test —
+ * the authored turn-envelope shape the plan node publishes: clean plan
+ * markdown plus the meta object `planStore.persistPlan` writes into
+ * `artifacts.meta` (`{ feedback, steps, branches }` — only the fields a demo
+ * story needs). No markdown plan-meta fence in the markdown: the parser never
+ * reads the markdown, it reads the artifact's JSONB meta column.
  *
  * Plain data module (no imports, no side effects) so both the seeds and
  * `tests/demoSeedPlanFixtures.test.ts` can consume it — the seed scripts
@@ -227,76 +226,5 @@ delivery → worker → admin replay, with the test suite as a first-class step.
         branch: null,
       },
     ],
-  },
-};
-
-/**
- * DEMO-143 plan — approved and published with `execution: "steps"` (knob
- * resolution): the legitimate published value that drives the build node's
- * fan-out runtime (one child flow per plan step).
- */
-export const FANOUT_PLAN = {
-  markdown: `# Saved dashboard views — implementation plan
-
-## Approach
-Backdrop the saved views as first-class rows with an ownership model, wire the
-dashboard filter bar to read/write them, and layer sharing + pinning on top
-with dedup protection for view-level params.
-
-## Files to create/change
-- \`db/migrations/031_saved_views.sql\` — views table
-- \`lib/views/store.ts\` — CRUD + visibility transitions
-- \`lib/views/filters.ts\` — filter-set encode/decode (URL ⇄ row)
-- \`app/api/views/route.ts\` — list/create
-- \`app/api/views/[id]/route.ts\` — update/share/pin/delete
-- \`app/dashboard/ViewBar.tsx\` — view picker + save control
-- tests for store + filters
-`,
-  meta: {
-    execution: "steps",
-    executionSource: "knob",
-    steps: [
-      {
-        id: "s1",
-        title: "Saved views table + migration",
-        detail: "Migration 031: id, owner_id, name, filters JSON, shared, pinned, created/updated.",
-        files: ["db/migrations/031_saved_views.sql"],
-      },
-      {
-        id: "s2",
-        title: "View store CRUD + visibility",
-        detail:
-          "create/list/update/delete, share toggle, pin single-default invariant enforced in lib/views/store.ts.",
-        files: ["lib/views/store.ts"],
-      },
-      {
-        id: "s3",
-        title: "Filter encode/decode",
-        detail:
-          "lib/views/filters.ts: canonical ⇄ URL query string ⇄ row payload round-trips; unknown params degrade gracefully.",
-        files: ["lib/views/filters.ts"],
-      },
-      {
-        id: "s4",
-        title: "Views API routes",
-        detail:
-          "app/api/views + [id]: validation, ownership checks, sharing ACL, 404 vs 403 semantics.",
-        files: ["app/api/views/route.ts", "app/api/views/[id]/route.ts"],
-      },
-      {
-        id: "s5",
-        title: "Dashboard ViewBar UI",
-        detail:
-          "app/dashboard/ViewBar.tsx: picker, apply, save (name dialog), pin control; wired to the filter bar state.",
-        files: ["app/dashboard/ViewBar.tsx"],
-      },
-      {
-        id: "s6",
-        title: "Tests: store, filters, routes",
-        detail: "Unit coverage for CRUD + encode/decode round-trips, route ACL tests.",
-        files: ["__tests__/views/"],
-      },
-    ],
-    branches: [],
   },
 };

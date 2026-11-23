@@ -65,7 +65,7 @@ async function seed(index: number, opts: { stepIds?: string[] } = {}): Promise<{
   );
   await planSteps.syncFromPlan(flowId, artId, (opts.stepIds ?? ["s1", "s2"]).map((id, i) => ({ id, title: `Step ${i + 1}`, branch: null })));
   const ctx = {
-    flow: { id: flowId, taskId, name: `finalizer ${index}`, status: "active", executionMode: "cloud", mrBranch: null, parentFlowId: null, createdAt: now(), updatedAt: now() },
+    flow: { id: flowId, taskId, name: `finalizer ${index}`, status: "active", executionMode: "cloud", mrBranch: null, createdAt: now(), updatedAt: now() },
     task: { id: taskId, type: "generic", key: `TST-${index}`, summary: "test", fields: {}, status: "open", issueType: "story", priority: "P2" },
   } as unknown as FlowCtx;
   return { flowId, nodeId, ctx };

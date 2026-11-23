@@ -40,7 +40,6 @@ export function NodeConfiguratorBody({
   onChange,
   incoming,
   locked,
-  planDownstream,
   taskFields,
   triggerFields,
   invalidRefs,
@@ -57,11 +56,6 @@ export function NodeConfiguratorBody({
   /** Node has no edges at all — shows a connect hint above the form; the
    *  prompt/knobs stay editable (task context variables remain available). */
   locked?: boolean;
-  /** The node is reachable from a plan node through next edges (the host
-   *  computes it over the whole template graph) — the Fanout config section
-   *  only applies here; an unplanned fan-out would fail save-time lint
-   *  rule 1 and silently runs whole at runtime. */
-  planDownstream?: boolean;
   /** The template's declared task type's contextFields (Phase 3) — the
    *  {{task.*}} vocabulary offered on EVERY node (base context, no wiring). */
   taskFields?: { key: string; label: string; type: string; required?: boolean }[];
@@ -220,7 +214,6 @@ export function NodeConfiguratorBody({
                 contract={contract}
                 varGroups={varGroups}
                 hasUpstream={hasUpstream}
-                planDownstream={planDownstream}
                 invalidRefs={invalidRefs}
                 templateId={templateId}
               />

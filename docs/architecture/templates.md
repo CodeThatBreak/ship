@@ -10,7 +10,7 @@ last_reviewed: 2026-11-20
 
 ## Summary
 
-Templates are the design-time definition of a flow: a `flow_templates` row plus its node instances (`flow_template_nodes`) and edges (`flow_template_edges`), each instance referencing a `node_templates` catalog row. The catalog holds seven seeded built-ins (`start`, `plan`, `build`, `step_build`, `pipeline`, `review`, `resolve`) and user-authored declarative kinds (`agent`, `decision`, `http`, `script`). Flows run against a JSON snapshot of the graph taken at creation, so editing a template never disturbs running flows. YAML import/export provides config-as-code, and a static lint pass rejects broken graphs, unresolved `{{refs}}`, and invalid fan-out wiring before save.
+Templates are the design-time definition of a flow: a `flow_templates` row plus its node instances (`flow_template_nodes`) and edges (`flow_template_edges`), each instance referencing a `node_templates` catalog row. The catalog holds six seeded built-ins (`start`, `plan`, `build`, `pipeline`, `review`, `resolve`) and user-authored declarative kinds (`agent`, `decision`, `http`, `script`). Flows run against a JSON snapshot of the graph taken at creation, so editing a template never disturbs running flows. YAML import/export provides config-as-code, and a static lint pass rejects broken graphs and unresolved `{{refs}}` before save.
 
 ## Architecture
 
@@ -35,9 +35,8 @@ The builtin catalog is seeded idempotently by the `builtin_template_seed`
 Prisma migration (deterministic ids, `ON CONFLICT DO NOTHING`) — every
 `prisma migrate deploy` (dev, test, prod) leaves the database with:
 
-- **Catalog built-ins** — `nt_start`, `nt_plan`, `nt_build`, `nt_step_build`, `nt_pipeline`, `nt_review`, `nt_resolve` (kind `builtin`).
+- **Catalog built-ins** — `nt_start`, `nt_plan`, `nt_build`, `nt_pipeline`, `nt_review`, `nt_resolve` (kind `builtin`).
 - **`tpl_sdlc_loop`** (`SDLC_TEMPLATE_ID`) — the SDLC loop: `plan` (manual) → `build` (approval) → `pipeline` (`auto`, `wait_for: pipeline`) → `review` (`auto`) → `resolve` (`debounced`, 10 min, `wait_for: comments`), with a `loop` edge `resolve → pipeline` conditioned on the JSONata expression `nodes.resolve.output.pushed = true` — the cycle re-enters the CI gate only when the resolve's fix is verified on the remote MR head.
-- **`tpl_step_build`** (`STEP_BUILD_TEMPLATE_ID`) — the hidden one-node child template plan fan-out defaults to: a single `step_build` instance with an `approval` trigger. `hidden=1` keeps it out of the gallery.
 - **Starter templates** — `tpl_docs_generation` (agent → script with input mapping), `tpl_release_notify` (agent → manual decision → http), `tpl_sentry_triage` (webhook-triggered agent → agent-proposes/approval-disposes decision → agent + http), plus their declarative catalog rows (`docs_summary`, `triage_agent`, …) as editable examples.
 
 ### Static lint
@@ -46,12 +45,9 @@ Two layers run before any save or import (and live via `lintDraft` for the edito
 
 - **`lintGraphStructure`** (`graphStructure.ts`) — pure structural rules: node key format/uniqueness, built-in instances must use their catalog key, edges reference known nodes, no self-edges or duplicates, branch labels only on decision out-edges (and each must match a declared choice), decision branches gate on labels rather than conditions, and no cycles among `next` edges (re-entry is a `loop` edge's job).
 - **`lintTemplate`** (`templateLint.ts`) — semantic checks against output contracts (`outputFieldsFor` derives addressable fields per kind: agent `output_schema` keys or `markdown`, decision `chosen`/`rationale` + pass fields, the start node's declared contract):
- - Every `{{ref}}` in prompts/URLs/bodies/questions resolves: roots are `task.*` (checked against the template's `trigger.task_type` provider `contextFields`), `repo.*`, `flow.*`, `trigger.payload.*`, `nodes.<key>.output.*` (checked against the referenced node's contract), `input.*` (the upstream parents' merged contracts plus `input_map` field names), and `secrets.*` (http nodes only — values never persist). Fan-out step-child roots (`plan`, `step`, `siblings`, `input.unit`) free-pass as late-bound.
+ - Every `{{ref}}` in prompts/URLs/bodies/questions resolves: roots are `task.*` (checked against the template's `trigger.task_type` provider `contextFields`), `repo.*`, `flow.*`, `trigger.payload.*`, `nodes.<key>.output.*` (checked against the referenced node's contract), `input.*` (the upstream parents' merged contracts plus `input_map` field names), and `secrets.*` (http nodes only — values never persist).
  - JSONata compiles in `input_map`, decision `pass` maps and expression-sourced choice conditions, http `response_map`, and edge conditions.
- - **Fan-out rules** (`fanoutOf` from `nodeConfig.ts`; modes `whole` / `steps` / `from-plan`): a fan-out node must sit downstream of a plan node; an explicit `child` template must exist and contain exactly one node — never `plan`/`pipeline`/`review`/`resolve` built-ins and never its own fan-out knob (no nesting); upstream of a fan-out, the referenced node's contract collapses to `steps` so downstream mappings stay stable across plan revisions.
- - **Agent split checks** — `split.field` must be a declared array in the agent's `output_schema`; `key_field` / `depends_on_field` / `target_field` must exist on the array's element shape; the default target resolves (node key or node template) and the item shape must satisfy the target template's start contract strictly.
  - **Edge/loop-condition output keys** (engine overhaul step 04) — every `nodes.<key>.output.<field>` referenced by an edge or loop condition must exist in the producing node's published output contract (`lib/jsonata/nodeOutputRefs.ts` walks the compiled JSONata AST; unknown node or field rejects the save — the seeded `resolve → pipeline` loop condition is a checked reference, not a floating string).
- - **Plan execution knob** (step 09) — the plan node's `execution_default: "steps"` is retired (`lintPlanExecution.ts`): the knob is `whole` | `follow`; old configs carrying the retired value fail lint loudly instead of silently re-resolving.
 
 Problems carry machine coordinates (`nodeKey` / `edgeIndex`) so the canvas can badge the offending element; the store throws the joined message on save/import.
 
@@ -118,7 +114,6 @@ flowchart LR
 ## Out of scope
 
 - Runtime node execution (registry hydration, run/chat lifecycles) and the declarative kinds' run semantics — covered per node kind.
-- Fan-out runtime machinery (step child flows, the merge arena) — only its static lint contract lives here.
 - Inbound webhook delivery handling and schedule firing — the store only provisions the hook and arms `schedule_next_at`.
 - The task-provider registry behind `trigger.task_type`.
 
@@ -131,7 +126,7 @@ flowchart LR
 | YAML import/export | `lib/engine/templates/templateYaml.ts` |
 | Semantic lint + output contracts | `lib/engine/templates/templateLint.ts` |
 | Structural graph rules | `lib/engine/templates/graphStructure.ts` |
-| Config knobs (`fanoutOf`, MCP sources) | `lib/engine/templates/nodeConfig.ts` |
+| Config knobs (MCP sources) | `lib/engine/templates/nodeConfig.ts` |
 | Expression preview | `lib/engine/templates/templatePreviewService.ts` |
 | Flow graph snapshot | `lib/engine/templates/flowGraphSnapshot.ts` |
 | Builtin + starter seeding | `lib/db/templateSeeder.ts` |

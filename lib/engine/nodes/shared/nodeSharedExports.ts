@@ -27,22 +27,6 @@ export type {
   PromptPreviewParams,
   PromptPreviewer,
 } from "./nodeRoles/types/nodeRoles";
-export {
-  DEFAULT_SPLIT_CONSUME,
-  SPLIT_CONSUME_MODES,
-  assertSplitTargetCompatible,
-  detectUnitCycle,
-  resolveSplitTarget,
-  splitConsumeOf,
-  splitParallelMaxOf,
-  type SplitConsumeMode,
-  type SplitTarget,
-  type SplitTargetLookup,
-  type SplitUnit,
-} from "./split";
-export { SplitTargetError } from "./split/splitTargetError";
-export { UnitCycleError } from "./split/unitCycleError";
-export { splitConsumeSchema, splitParallelMaxSchema } from "./split/schemas/splitKnobs";
 export type { NodeCapabilities } from "./capabilities";
 export { TemplateRenderer } from "./templateRenderer";
 export type { TemplateRenderOptions } from "./types/templateRenderer";

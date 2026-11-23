@@ -12,16 +12,13 @@ import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExpo
 import { buildFlowContext } from "../../../context/flowVariables";
 import { untrustedData } from "../../../prompts/untrustedData";
 import type { AgentDef } from "../../schemas/declarativeSchemas";
-import { splitDirective } from "./splitDirective";
 
 /**
  * The agent kind's prompt assembly (§3.11 `<kind>-prompt.ts`): the ONE place
  * the agent's final prompt bytes are built, shared by `run`, `chat` and
- * `previewPrompt` so the preview cannot drift from the run. Invariant upheld:
- * every surface appends the same directives in the same order (output-contract
- * directive first, split directive second). Must never render a prompt without
- * the contract directive for a json output — the response would be validated
- * against a contract the agent never saw.
+ * `previewPrompt` so the preview cannot drift from the run. Must never render
+ * a prompt without the contract directive for a json output — the response
+ * would be validated against a contract the agent never saw.
  */
 
 /**
@@ -40,12 +37,10 @@ export const agentContractDirective = (
 };
 
 /**
- * The prompt body + the contract directives, composed in ONE place so every
- * surface (fresh run, chat follow-up, the bounded retry) appends the same
- * blocks in the same order: the output-contract directive first (json
- * output), then the split directive when the def declares `split` — units
- * are contract-shaped output, so the two belong together. A body with
- * nothing to append comes back byte-identical (no compose round-trip).
+ * The prompt body + the output-contract directive, composed in ONE place so
+ * every surface (fresh run, chat follow-up, the bounded retry) appends the
+ * same bytes. A body with nothing to append comes back byte-identical (no
+ * compose round-trip).
  */
 export const composeAgentPrompt = (
   body: string,
@@ -53,14 +48,11 @@ export const composeAgentPrompt = (
   outputSchema: z.ZodType<Record<string, unknown>>,
 ): string => {
   if (cfg.output !== AGENT_OUTPUT_FORMAT.JSON) return body;
-  const composed = TemplateRenderer.compose(body)
+  return TemplateRenderer.compose(body)
     .addBlankLine()
     .addBlankLine()
-    .addLine(agentContractDirective(cfg, outputSchema));
-  if (cfg.split) {
-    composed.addBlankLine().addBlankLine().addLine(splitDirective(cfg.split));
-  }
-  return composed.build();
+    .addLine(agentContractDirective(cfg, outputSchema))
+    .build();
 };
 
 /**

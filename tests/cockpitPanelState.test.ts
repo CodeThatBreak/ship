@@ -30,7 +30,7 @@ describe("resolveCockpitSelectedKey", () => {
 });
 
 describe("runningNodeKeysOf", () => {
-  it("collects every running node key — fan-out may run several at once", () => {
+  it("collects every running node key", () => {
     const nodes = [node("plan", "done"), node("build", "running"), node("review", "running")];
     expect(runningNodeKeysOf(nodes)).toEqual(new Set(["build", "review"]));
   });

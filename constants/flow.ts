@@ -61,13 +61,6 @@ export const FLOW_ACTION = {
   APPROVE_NODE: "approve_node",
   SET_NODE_CONFIG: "set_node_config",
   CHOOSE_NODE: "choose_node",
-  APPROVE_FANOUT_STEP: "approve_fanout_step",
-  RETRY_FANOUT_STEP: "retry_fanout_step",
-  SKIP_FANOUT_STEP: "skip_fanout_step",
-  SKIP_SPLIT_UNIT: "skip_split_unit",
-  RETRY_SPLIT_UNIT: "retry_split_unit",
-  APPROVE_SPLIT_UNIT: "approve_split_unit",
-  CANCEL_SPLIT_UNIT: "cancel_split_unit",
   /** Diff fact refresh (Task 08): re-run the read-only diff capture under the
    *  node's current state — the panel offers it when the branch moved past
    *  the capture. */
@@ -110,18 +103,6 @@ export const PANEL_VERB_STATUSES: readonly FlowStatus[] = [
   FLOW_STATUS.APPROVED,
   FLOW_STATUS.FAILED,
 ];
-
-/** Plan fan-out aggregate child state (Phase 4 monitoring, §5): the node's
- *  own status stays `running` while it orchestrates, so the per-step rollup
- *  is an AGGREGATE over the children — see `components/flows/cockpit/fanout-progress.ts`. */
-export const FANOUT_STATE = {
-  FAILED: "failed",
-  AWAITING: "awaiting",
-  IN_FLIGHT: "in-flight",
-  RESOLVED: "resolved",
-} as const;
-
-export type FanoutState = (typeof FANOUT_STATE)[keyof typeof FANOUT_STATE];
 
 /** Badge color per run status — the one statusVariant lookup the panels,
  *  graph nodes and plan header share. Unlisted statuses render muted

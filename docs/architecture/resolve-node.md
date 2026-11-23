@@ -233,7 +233,7 @@ Four layers, each with exactly one behavior:
 3. **Verification hardening.** A failed MR-head read is `unknown` — loud, never a silent "no change"; threads stay open until the state can be verified.
 4. **Restart recovery.** The dropped run is re-applied through the contract and the artifact ledger (above) instead of being lost.
 
-## Fan-out and downstream
+## Downstream loop
 
 The loop edge is the downstream: seeded in `lib/db/templateSeeder.ts` as `resolve → pipeline`, kind `loop`, condition `nodes.resolve.output.pushed = true` (lint-checked against the resolve node's output contract at template save). A truthy condition makes the stage's loop join (`lib/engine/runtime/staging/LoopJoin`, declared reset set in `staging/constants/loopJoin.ts`) reset `pipeline` and its success-terminal downstream path to `pending` and re-run the gate; a falsy one leaves the loop edge as display metadata and the cycle terminates. Termination therefore happens when the fix is not verified on the remote MR head: nothing to resolve, an answered-only cycle, a degraded `local_only`, or an unverifiable MR.
 
@@ -242,7 +242,6 @@ The loop edge is the downstream: seeded in `lib/db/templateSeeder.ts` as `resolv
 - Review comment generation — see [`review-node.md`](./review-node.md).
 - The pipeline gate's own fix loop (failed-job log fixing) — owned by the pipeline node.
 - Merge / close lifecycle of the MR itself and flow completion after the loop terminates.
-- The `split_consume` knobs declared on the config schema (split runtime documented separately).
 
 ## Related code index
 

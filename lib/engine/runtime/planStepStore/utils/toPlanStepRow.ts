@@ -17,7 +17,6 @@ export const toRow = (r: {
   status: string;
   origin: string;
   completedBy: string | null;
-  subFlowId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): PlanStepRow => ({
@@ -33,7 +32,6 @@ export const toRow = (r: {
   status: r.status,
   origin: r.origin,
   completedBy: r.completedBy,
-  subFlowId: r.subFlowId,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
 });

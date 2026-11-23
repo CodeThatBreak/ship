@@ -25,7 +25,7 @@ describe("retryNode prompt rebuild (step 05)", () => {
       instructions: "focus on error handling",
       model: "gpt-x",
     };
-    for (const key of ["build", "step_build", "review", "resolve", "pipeline"]) {
+    for (const key of ["build", "review", "resolve", "pipeline"]) {
       expect(rebuild({ key }, recorded)).toEqual({
         instructions: "focus on error handling",
         model: "gpt-x",

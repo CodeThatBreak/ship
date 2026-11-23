@@ -1,5 +1,5 @@
 import type { Artifact } from "@/types/flow";
-import type { BranchPlan } from "../types/planTypes";
+import type { RefineBranch } from "../types/planTypes";
 import {
   PLAN_TAB_CAPTION_BRANCH_PREFIX,
   PLAN_TAB_CAPTION_MAX,
@@ -185,7 +185,7 @@ export function latestScopedRefineVersion(
  */
 export function computeStaleBranches(
   plans: Artifact[],
-  branches: BranchPlan[] | null,
+  branches: RefineBranch[] | null,
   overviewVersion: number,
 ): Map<string, number> {
   const out = new Map<string, number>();

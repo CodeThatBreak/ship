@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { BranchRow, FlowData } from '@/types/flow';
-import { fmtDuration, fmtTokens } from '@/lib/format';
+import { fmtTokens } from '@/lib/format';
 import { FLOW_STATUS } from '@/constants/flow';
 
 // top bar for the flow screen: breadcrumb back to the index, task identity
@@ -22,14 +22,11 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
   const usageTokens = usage
     ? usage.inputTokens + usage.outputTokens + usage.cacheTokens
     : 0;
-  // plan fan-out (Phase 4): the flow total includes the step children's runs
-  // — the tooltip breaks that share down per step (cost · duration · runs)
-  const stepCosts = (flow.planSteps ?? []).filter(s => s.subFlow && (s.subFlow.runCount ?? 0) > 0);
   const costTitle =
     cost &&
     `${cost.runCount} run${cost.runCount > 1 ? 's' : ''}${
       cost.tokens ? ` · ${fmtTokens(cost.tokens)}` : ''
-    }${stepCosts.length ? ` (incl. ${stepCosts.length} step sub-flow${stepCosts.length > 1 ? 's' : ''})` : ''}`;
+    }`;
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border bg-card px-4">
@@ -80,27 +77,7 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
             <Coins data-icon="inline-start" />
             {cost.totalCents > 0 ? `$${(cost.totalCents / 100).toFixed(2)}` : fmtTokens(cost.tokens) || '0 tok'}
           </TooltipTrigger>
-          <TooltipContent>
-            {costTitle}
-            {stepCosts.length > 0 && (
-              <div className="mt-1 grid text-[11px] font-mono max-w-[290px]">
-                {stepCosts.map(s => {
-                  const sf = s.subFlow;
-                  if (!sf) return null;
-                  const cents = sf.costCents ?? 0;
-                  return (
-                    <div key={s.id} className="flex gap-2 justify-between">
-                      <span className="truncate opacity-80">{s.title}</span>
-                      <span className="shrink-0">
-                        {cents > 0 ? `$${(cents / 100).toFixed(2)}` : 'n/a'}
-                        {(sf.durationMs ?? 0) > 0 && ` · ${fmtDuration(sf.durationMs)}`}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </TooltipContent>
+          <TooltipContent>{costTitle}</TooltipContent>
         </Tooltip>
       )}
 

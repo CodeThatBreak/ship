@@ -2,7 +2,6 @@ import "server-only";
 
 import { z } from "zod";
 import { mcpSourcesSchema } from "../../templates/schemas/mcpSources";
-import { splitConsumeSchema, splitParallelMaxSchema } from "../shared/split/schemas/splitKnobs";
 import { FACT_KIND, NEEDABLE_FACTS, PRODUCIBLE_FACTS } from "../../facts/types/facts";
 import {
   EFFECT_VERBS_AFTER_APPROVAL,
@@ -80,38 +79,6 @@ export const AgentDefSchema = z.looseObject({
    *  TypeScript members it was authored from ride along as `output_schema_ts`
    *  (the schema box's source — unknown keys tolerated on purpose). */
   output_schema: z.unknown().optional().default(null),
-  /**
-   * The declarative split (agent-node split plan §2.2) — what makes this
-   * agent node a split SOURCE. Absent ⇒ the node is not a source (no
-   * behavior change). `field` is the output_schema array field to iterate
-   * (already schema-enforced by the output contract, so units are validated
-   * data by construction); the *_field members are per-item paths. Nothing
-   * reads this yet — Phase 3 wires `splitUnits()` on top of it.
-   */
-  split: z.object({
-    /** the output_schema array field to iterate — REQUIRED, never blank */
-    field: z.string().min(1, "split.field is required when split is declared"),
-    /** per-unit key: the item path holding the stable unit id */
-    key_field: z.string().min(1).default("key"),
-    /** where units go by default: a node key or a template id */
-    target: z.string().min(1).optional(),
-    /** per-item target override path (optional heterogeneous routing) */
-    target_field: z.string().min(1).optional(),
-    /** per-item dependencies path (string[] of unit keys) */
-    depends_on_field: z.string().min(1).default("dependsOn"),
-  }).optional(),
-  /**
-   * How this agent node CONSUMES an upstream split source's output
-   * (agent-node split plan §2.4 — Phase 4). The consumer decides (§1):
-   * whole = one run with the full upstream output (today's edge semantics,
-   * the default); per-unit = the split runtime expands one child run per
-   * unit and joins; source = the source def's `splitResolution()` decides.
-   * Reads at the engine's split gate via `splitConsumeOf` — a declarative
-   * run itself never branches on this.
-   */
-  split_consume: splitConsumeSchema,
-  /** per-unit slot budget for the split scheduler (§3), default 1 = sequential */
-  split_parallel_max: splitParallelMaxSchema,
   /**
    * The git side effects this node's runs may establish (Task 06, Invariant
    * F4): `result.git` is consumed only for the declared kinds — an explicit
@@ -222,27 +189,3 @@ export const ScriptDefSchema = z.looseObject({
 });
 export type ScriptDef = z.infer<typeof ScriptDefSchema>;
 
-export const SubflowDefSchema = z.looseObject({
-  /**
-   * The delegated child flow (task 26, design §7, finding B4): a
-   * `flow_templates` id the stage gate expands ONE child flow from. null =
-   * not configured yet — the gate skips (the frozen whole path) and the
-   * def's own run fails loudly instead of delegating silently.
-   */
-  child: z.string().nullable().default(null),
-  /**
-   * Concurrency ceiling for the delegation. A subflow expands exactly ONE
-   * child flow today (B4: "a small addition on the new gate, not a new
-   * runtime"); the knob stays validated data so a later multi-child shape
-   * never re-authors the config.
-   */
-  parallel_max: z.number().int().min(1).default(1),
-  /**
-   * Optional pass mapping: field → JSONata over the child's terminal output
-   * (the decision `pass` precedent). Non-empty ⇒ the mapped fields publish
-   * as the parent node's aggregate; empty ⇒ the child's terminal output
-   * publishes as-is. Evaluated at rollup time, never persisted raw.
-   */
-  pass: z.record(z.string(), z.string()).default({}),
-});
-export type SubflowDef = z.infer<typeof SubflowDefSchema>;

@@ -51,9 +51,8 @@ export class FlowPoller {
   private readonly jobs = new JobQueue();
   private readonly webhookDeliveries = new WebhookDeliveryHandler();
   private readonly scheduleFires = new ScheduleFireHandler(this.jobs);
-  /** step 06 task 4: the sweep's re-claim finalizes an orphaned cancel intent
-   *  (step 07: the child-terminal notify rides the engine's effect registry). */
-  private readonly cancels = new CancelHandler(this.jobs, flowEngine.effects);
+  /** step 06 task 4: the sweep's re-claim finalizes an orphaned cancel intent. */
+  private readonly cancels = new CancelHandler(this.jobs);
   /** step 06 task 5: the re-claim path's commit-fix run goes through the
    *  engine's delegate (the SDLC chain's loop — the adopt path picks up the
    *  existing MR on a crashed creation). */
@@ -73,8 +72,8 @@ export class FlowPoller {
     private readonly waits: WaitStore = flowEngine.waitsStore,
   ) {}
 
-  /** Start the tick loop (idempotent). One-time sweeps first: worktrees and
-   *  stuck step merges — resume what a restart interrupted. */
+  /** Start the tick loop (idempotent). One-time sweeps first: worktrees —
+   *  resume what a restart interrupted. */
   start(intervalMs = 30_000): void {
     if (this.started) return;
     this.started = true;
@@ -82,12 +81,6 @@ export class FlowPoller {
     // prune, and reconcile workspaces/<flowId> dirs against the flows table
     void worktreeManager.sweepWorktrees().catch((e: unknown) =>
       console.warn(`worktree sweep failed: ${e instanceof Error ? e.message : e}`)
-    );
-    // one-time global pass over stuck step_merges (plan fan-out Phase 2B):
-    // resume or flag merge-backs a restart interrupted — even when nobody
-    // has opened a flow page yet
-    void this.reconciler.sweepStuckStepMerges().catch((e: unknown) =>
-      console.warn(`step-merge reconcile failed: ${e instanceof Error ? e.message : e}`)
     );
     // NOTE (step 03): no wait re-arm pass — waits are durable
     // (`nodes.wait_until`); the first tick's sweep resumes them
@@ -160,7 +153,7 @@ export class FlowPoller {
         id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
         mrBranch: true, repoUrl: true, gitlabProjectId: true,
         executionMode: true, repoId: true, templateId: true, templateGraph: true,
-        triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
+        triggerPayload: true, worktreeDir: true, kind: true,
         createdAt: true, updatedAt: true,
       },
     });
@@ -191,7 +184,6 @@ export class FlowPoller {
       }
     }
     this.pruneCommentCounts(activeFlowIds);
-    await this.reconciler.pruneFlowMaps(activeFlowIds);
   }
 
   /** Reconciler pass over every active flow (idempotent, every tick). */

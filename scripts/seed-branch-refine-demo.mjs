@@ -19,13 +19,6 @@
  *   v4  branch-scoped refine of `backend` → diff banner (backend, v3→v4) +
  *       staleness signals (backend doc v4 > overview v3), checklist rows of
  *       other branches untouched, manual row never clobbered
- *
- * The plan node also publishes the split-units state (plan fan-out §1): the
- * knob is `execution_default: follow` and every plan version's meta carries
- * the planner's decision `execution: "steps"` (one child flow per branch on
- * approval), so the approve footer shows the published resolution, its
- * rationale and the Force-whole override — exactly what PlanStore.persistPlan
- * publishes at run time.
  */
 import { deleteTaskDemoFlows, minsAgo, now, openSeedPrisma, uid } from './lib/seed-db.mjs';
 
@@ -313,17 +306,6 @@ const metaV1 = {
   ],
 };
 
-// What PlanStore.persistPlan publishes in `follow` mode (plan fan-out §1):
-// the planner's per-branch fan-out decision rides EVERY plan version in
-// artifacts.meta, so the plan panel/approve footer show the published
-// resolution ("steps" — one child flow per branch) with its rationale.
-const PLANNER_EXECUTION = {
-  execution: 'steps',
-  executionSource: 'planner',
-  execution_rationale:
-    'Two independent branches (schema/delivery core vs worker loop) a reviewer can verify one at a time',
-};
-
 // ── v2 scoped refine input: the "agent response" for worker ──────────────────
 const SUB_WORKER_V2 = {
   markdown: WORKER_DOC_V2,
@@ -476,12 +458,6 @@ for (const key of ['plan', 'build', 'pipeline', 'review', 'resolve']) {
 }
 console.log(`flow created: ${flowId}`);
 
-// the plan node's knob: `follow` — the PLANNER decides per plan version
-await prisma.node.update({
-  where: { id: nodeIds.plan },
-  data: { config: { execution_default: 'follow' } },
-});
-
 const ev = (msg, m, nodeId = nodeIds.plan) =>
   prisma.event.create({
     data: {
@@ -525,7 +501,7 @@ function savePlanArtifact(content, meta, version, m, feedback = null) {
 // ── act 1 (t-52m): plan v1, 2 branches ────────────────────────────────────────
 const artV1 = await savePlanArtifact(
   PLAN_V1,
-  { feedback: null, steps: metaV1.steps, branches: metaV1.branches, ...PLANNER_EXECUTION },
+  { feedback: null, steps: metaV1.steps, branches: metaV1.branches },
   1,
   52
 );
@@ -549,10 +525,6 @@ const insStep = (s, pos) =>
   });
 for (const [i, s] of metaV1.steps.entries()) await insStep(s, i);
 await ev('plan v1 ready for review (2 branches · 7 steps)', 52);
-await ev(
-  'planner decided execution "steps" — one child flow per branch on approval ("Two independent branches a reviewer can verify one at a time")',
-  52.5
-);
 
 // dev checked off the two "obvious" backend steps by hand while reading v1
 for (const mid of ['s1', 's2']) {
@@ -593,7 +565,6 @@ const artV2 = await savePlanArtifact(
     steps: mergedV2.steps,
     branches: mergedV2.branches,
     scopedRefine: { branch: 'worker', from: 1 },
-    ...PLANNER_EXECUTION,
   },
   2,
   31
@@ -635,7 +606,6 @@ const artV3 = await savePlanArtifact(
     feedback: 'tighten the overview prose after the worker refine',
     steps: metaV3.steps,
     branches: metaV3.branches,
-    ...PLANNER_EXECUTION,
   },
   3,
   14,
@@ -662,7 +632,6 @@ const artV4 = await savePlanArtifact(
     steps: mergedV4.steps,
     branches: mergedV4.branches,
     scopedRefine: { branch: 'backend', from: 3 },
-    ...PLANNER_EXECUTION,
   },
   4,
   2

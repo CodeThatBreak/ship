@@ -4,11 +4,6 @@ import type { LintProblem } from "@/types/templateLint";
 import type { AddressesOutput, LintNode, NodeContract, TaskUniverse } from "./lintTypes";
 
 const ROOTS = ["task", "repo", "flow", "trigger", "nodes", "input", "secrets"] as const;
-// plan fan-out step children (Phase 1): {{plan}}, {{step.*}} and {{siblings}}
-// resolve in fan-out step child flows (the {plan, step, siblings} trigger
-// payload aliases — see run-context.ts). They free-pass here like the other
-// late-bound roots; outside a step child they render empty strings.
-const FANOUT_ROOTS = new Set(["plan", "step", "siblings"]);
 
 interface LintCtx {
   problems: LintProblem[];
@@ -32,7 +27,6 @@ export const lintRef = (where: string, ref: string, ctx: LintCtx): void => {
   const stamp = ctx.nodeKey ? { nodeKey: ctx.nodeKey } : {};
   const segments = ref.split(".");
   const root = segments[0];
-  if (FANOUT_ROOTS.has(root)) return; // fan-out step-child variables — resolve at the child flow's runtime
   if (!(ROOTS as readonly string[]).includes(root)) {
     ctx.problems.push({
       where,
@@ -59,11 +53,6 @@ export const lintRef = (where: string, ref: string, ctx: LintCtx): void => {
     // the inherited run input — the upstream parents' merged output contract
     const field = segments[1];
     if (!field) return; // bare {{input}} renders the whole inherited object
-    // split unit children (agent-node split plan §2.1): the unit's own
-    // {{input.unit.*}} rides the child run's trigger payload (flow-engine
-    // inheritedInput), not the parent's output contract — late-bound here
-    // like the fan-out step roots above
-    if (field === "unit") return;
     if (ctx.inheritedFields == null) return; // free-form — any field passes
     if (!ctx.inheritedFields.includes(field)) {
       ctx.problems.push({

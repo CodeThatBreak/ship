@@ -21,7 +21,6 @@ export interface PlanStepRow {
   status: string; // pending | done
   origin: string; // agent | user
   completedBy: string | null;
-  subFlowId: string | null; // step ⇄ sub-flow linkage (plan fan-out)
   createdAt: string;
   updatedAt: string;
 }

@@ -10,7 +10,6 @@ const listRow = {
   mrUrl: "https://gitlab.example.com/a/b/-/merge_requests/1",
   executionMode: "local",
   task: { key: "DEV-1", summary: "Do the thing" },
-  fanout: { steps: 3, done: 1, active: true },
 };
 
 describe("flowSummary", () => {
@@ -24,7 +23,6 @@ describe("flowSummary", () => {
       taskSummary: "Do the thing",
       mrUrl: "https://gitlab.example.com/a/b/-/merge_requests/1",
       executionMode: "local",
-      fanout: { steps: 3, done: 1, active: true },
     });
   });
 

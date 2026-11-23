@@ -3,12 +3,11 @@
  * The node configurator's Config tab: built-ins get the schema-driven config
  * form from their `configFields` (prompt fields excluded — the Prompt tab has
  * them); declarative kinds (agent / decision / http / script) edit instance
- * overrides through the shared DeclarativeConfigFields form. The fan-out
- * knobs stay gated behind the plan-downstream check and http nodes get the
- * {{secrets.NAME}} vocabulary read from the shared settings query.
+ * overrides through the shared DeclarativeConfigFields form. Http nodes get
+ * the {{secrets.NAME}} vocabulary read from the shared settings query.
  */
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from '../../../../ui/button';
 import { Skeleton } from '../../../../ui/skeleton';
 import { cn } from "@/lib/utils";
@@ -25,34 +24,12 @@ import {
 import { DeclarativeConfigFields } from './fields/DeclarativeConfigFields';
 import type { VarGroup } from '../../../variables';
 
-import { FANOUT_FIELD_KEYS } from "@/constants/nodeKind";
-
-/**
- * The Fanout gate's warning (§): the instance already overrides a fan-out key
- * but no plan node reaches it through next edges — the overrides are inert
- * (runtime falls back to the whole path) and save-time lint will flag them.
- * Shown above the gated fields so they stay visible to clear.
- */
-function FanoutUnplannedHint() {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/[0.04] px-3 py-2">
-      <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
-      <p className="text-[12px] text-warning/90 m-0">
-        Fan-out needs a plan node upstream — these settings won&apos;t apply
-        until a plan node flows into this node (save-time lint flags an
-        unplanned fan-out). Clear the overrides or wire a plan in.
-      </p>
-    </div>
-  );
-}
-
 export function ConfigTab({
   node,
   onChange,
   contract,
   varGroups,
   hasUpstream,
-  planDownstream,
   invalidRefs,
   templateId,
 }: {
@@ -63,8 +40,6 @@ export function ConfigTab({
   varGroups: VarGroup[];
   /** any `next`-edge parent connected — false shows the inherit hint */
   hasUpstream: boolean;
-  /** reachable from a plan node through next edges — the Fanout section gate */
-  planDownstream?: boolean;
   /** live-linted refs → the linter's problem (underlined in prompt fields) */
   invalidRefs?: Record<string, string>;
   /** the owning template's id (Phase 5) — the expression editors' preview */
@@ -104,13 +79,6 @@ export function ConfigTab({
       Connect a node to inherit its outputs as variables.
     </p>
   ) : null;
-  // the fan-out gate (save-time lint rule 1, mirrored for the editor): the
-  // shared Fanout fields render only for plan-downstream nodes. Gated off
-  // while unqualified — unless the instance already overrides one (the stale
-  // config must stay visible so the author can clear it) with a warning hint.
-  const fanoutConfigured = [...FANOUT_FIELD_KEYS].some((k) => node.config?.[k] != null);
-  const showFanout = planDownstream || fanoutConfigured;
-  const fanoutHint = !planDownstream && fanoutConfigured ? <FanoutUnplannedHint /> : null;
   // declarative kinds: the catalog definition IS the config — the shared
   // DeclarativeConfigFields form (also the Template Nodes create dialog's)
   // renders every knob the kind declares; values set here override the
@@ -120,7 +88,6 @@ export function ConfigTab({
       <div className="grid gap-3">
         {inheritHint}
         {secretsError}
-        {fanoutHint}
         <DeclarativeConfigFields
           key={`${node.key}:${node.nodeTemplateId}`}
           kind={node.kind ?? ""}
@@ -130,7 +97,6 @@ export function ConfigTab({
           varGroups={varGroups}
           invalidRefs={invalidRefs}
           templateId={templateId}
-          planDownstream={planDownstream}
           hideFields={promptEditorKeys}
           onConfigChange={(config) => onChange({ config })}
         />
@@ -148,7 +114,6 @@ export function ConfigTab({
     <div className="grid gap-3">
       {inheritHint}
       {secretsError}
-      {fanoutHint}
       {nonPromptFields.length === 0 && !contract && <ConfigFieldsSkeleton />}
       {nonPromptFields.length === 0 && contract && (
         <p className="text-muted-foreground text-[13px]">
@@ -157,9 +122,7 @@ export function ConfigTab({
             : "This node has no configurability."}
         </p>
       )}
-      {nonPromptFields
-        .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
-        .map((f) => (
+      {nonPromptFields.map((f) => (
         <ConfigFieldRow
           key={`${node.key}:${f.key}`}
           field={f}

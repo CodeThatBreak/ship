@@ -15,10 +15,9 @@ import { worktreeManager } from "../../../runtime/worktreeLifecycle";
  * The run machinery the build defs share (§T6): branch assignment, the local
  * worktree lifecycle, result-branch detection and the per-branch review diff
  * artifact. Composition, not inheritance — `BuildNode` (the whole-plan /
- * multi-branch build) and `StepBuildNode` (one fan-out step) each own their
- * `run()` end-to-end over this helper, and the step child no longer inherits
- * the parent's machinery. Both construct it from their own injected services
- * (§T1), so a test stub rides the same seam into every method.
+ * multi-branch build) owns its `run()` end-to-end over this helper and builds
+ * it from its own injected services (§T1), so a test stub rides the same seam
+ * into every method.
  */
 export class BuildRunSupport {
   constructor(

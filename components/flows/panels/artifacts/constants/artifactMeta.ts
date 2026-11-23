@@ -7,8 +7,4 @@ export const ARTIFACT_META = {
    *  renderer shows the provenance badge through the shared wrapper so the
    *  output is never mistaken for a real artifact (use case 8h). */
   DRY_RUN: "dryRun",
-  /** The fan-out rollup's parent-attached MERGED diff (vs the integration
-   *  base) — distinguishes it from the per-step diff facts (task 25) that
-   *  share the node's artifact list. */
-  FANOUT: "fanout",
 } as const;

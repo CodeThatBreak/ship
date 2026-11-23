@@ -24,8 +24,6 @@ import { ArtifactListRow, buildNodeTemplateIndex, toFlowArtifact, toFlowTask } f
 import { sumUsageArtifacts } from "./flowReadModel/utils/usageRollup";
 import { templateStore, type TemplateGraph } from "../templates/templateStore";
 import { NotFoundError } from "../../errors";
-import { stepFlows } from "./fanout/stepFlowManager";
-import { StepFlowManager } from "./fanout/stepFlowManager/stepFlowManager";
 import { accumulateRunRow, emptyRunTokenBucket } from "../utils/runTokenRollup";
 import { ARTIFACT_KIND } from "../constants/vocabulary";
 import type { WaitStore } from "./waits/waitStore";
@@ -69,7 +67,6 @@ export class FlowReadModel {
       })).map((r) => r.content),
     );
 
-    const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
     const branches = parseRows(
       BranchRow,
       await db.prisma.branch.findMany({
@@ -77,7 +74,6 @@ export class FlowReadModel {
         orderBy: [{ order: "asc" }, { createdAt: "asc" }],
       }),
     );
-    const mergeStateMap = await stepFlows.mergeStates(id);
     const steps = parseRows(
       PlanStepRow,
       await db.prisma.planStep.findMany({
@@ -87,7 +83,7 @@ export class FlowReadModel {
     ).map((s) => ({ ...s, files: s.files ?? [] }));
 
     /** rows.ts rows and the UI read model both use camelCase keys. */
-    const toUiStep = (s: (typeof steps)[number]) => ({
+    const stepsEnriched = steps.map((s) => ({
       id: s.id,
       flowId: s.flowId,
       artifactId: s.artifactId,
@@ -100,81 +96,7 @@ export class FlowReadModel {
       status: s.status,
       origin: s.origin,
       completedBy: s.completedBy,
-    });
-
-    const childFlowIds = steps.map((s) => s.subFlowId).filter((v): v is string => Boolean(v));
-    const childFlowById = new Map<string, FlowRow>();
-    const childNodesByFlowId = new Map<string, NodeRow[]>();
-    if (childFlowIds.length) {
-      for (const child of parseRows(
-        FlowRow,
-        await db.prisma.flow.findMany({ where: { id: { in: childFlowIds } } }),
-      )) {
-        childFlowById.set(child.id, child);
-      }
-      for (const node of parseRows(
-        NodeRow,
-        await db.prisma.node.findMany({
-          where: { flowId: { in: childFlowIds } },
-          orderBy: { createdAt: "asc" },
-        }),
-      )) {
-        const list = childNodesByFlowId.get(node.flowId);
-        if (list) list.push(node);
-        else childNodesByFlowId.set(node.flowId, [node]);
-      }
-      const childRuns = parseRows(
-        RunRow,
-        await db.prisma.run.findMany({
-          where: { flowId: { in: childFlowIds } },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        }),
-      );
-      for (const r of childRuns) {
-        const c = stepRunStats.get(r.flowId) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 };
-        if (r.costCents != null) c.costCents += r.costCents;
-        if (r.durationMs != null) c.durationMs += r.durationMs;
-        const bucket = emptyRunTokenBucket();
-        accumulateRunRow(bucket, r);
-        c.tokens += bucket.tokens;
-        c.runCount++;
-        stepRunStats.set(r.flowId, c);
-      }
-      for (const c of stepRunStats.values()) {
-        flowCost.totalCents += c.costCents;
-        flowCost.tokens += c.tokens;
-        flowCost.runCount += c.runCount;
-      }
-    }
-
-    const stepsEnriched = steps.map((s) => {
-      const base = toUiStep(s);
-      if (!s.subFlowId) return base;
-      const child = childFlowById.get(s.subFlowId);
-      if (!child) return base;
-      const childNodes = childNodesByFlowId.get(s.subFlowId) ?? [];
-      let parentNodeKey: string | null = null;
-      const p = child.triggerPayload ?? {};
-      parentNodeKey = typeof p.parentNodeKey === "string" ? p.parentNodeKey : null;
-      const ms = mergeStateMap[s.subFlowId] ?? null;
-      return {
-        ...base,
-        subFlow: {
-          id: child.id,
-          name: child.name,
-          status: child.status,
-          branch: child.mrBranch,
-          nodeStatus: StepFlowManager.childRollup(childNodes.map((n) => n.status), child.status),
-          nodeKey: childNodes[0]?.nodeKey ?? null,
-          parentNodeKey,
-          ...(stepRunStats.get(s.subFlowId) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 }),
-          mergeStatus: ms?.mergeStatus ?? null,
-          mergeAttempts: ms?.mergeAttempts ?? 0,
-          mergeError: ms?.mergeError ?? null,
-          staleBase: ms?.staleBase ?? false,
-        },
-      };
-    });
+    }));
 
     const order = (await templateStore.graphForFlow(id))?.nodes.map((n) => n.key) ?? nodeRegistry.order();
     const ntRows = await db.prisma.nodeTemplate.findMany({
@@ -263,33 +185,16 @@ export class FlowReadModel {
 
   async list() {
     const flows = await db.prisma.flow.findMany({
-      where: { kind: { not: "step" }, parentFlowId: null },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
         mrBranch: true, repoUrl: true, gitlabProjectId: true,
         executionMode: true, repoId: true, templateId: true, templateGraph: true,
-        triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
+        triggerPayload: true, worktreeDir: true, kind: true,
         createdAt: true, updatedAt: true,
         task: { select: { key: true, summary: true } },
       },
     });
-    const fanoutByFlow = new Map<string, { steps: number; done: number }>();
-    for (const r of await db.prisma.planStep.groupBy({
-      by: ["flowId"],
-      where: { subFlowId: { not: null } },
-      _count: { _all: true },
-    })) {
-      // done counts need a filtered count — compute per flow
-      const done = await db.prisma.planStep.count({ where: { flowId: r.flowId, subFlowId: { not: null }, status: "done" } });
-      fanoutByFlow.set(r.flowId, { steps: r._count._all, done });
-    }
-    if (fanoutByFlow.size) {
-      for (const f of flows) {
-        const fo = fanoutByFlow.get(f.id);
-        if (fo) (f as Record<string, unknown>).fanout = { ...fo, active: fo.done < fo.steps };
-      }
-    }
     return flows;
   }
 
@@ -350,9 +255,8 @@ export class FlowReadModel {
   /**
    * The latest artifact version a chain role's def published as a first-class
    * resource (§T3/F3) — e.g. the plan document the plan editor and the
-   * approval flow consume. Also on the StepFlowManager's engine surface
-   * (publishedExecution reads the plan version through it). The ORM read
-   * returns the full row and every caller picks its fields.
+   * approval flow consume. The ORM read returns the full row and every caller
+   * picks its fields.
    */
   async latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined> {
     const kinds = this.resourceKinds(role);

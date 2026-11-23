@@ -7,9 +7,6 @@ import { agentPortRegistry } from "../../ports/agentPort";
 import { NODE_STATUS } from "../../constants/nodeStatus";
 import { RUN_STATUS } from "../../constants/vocabulary";
 import { resolveRunMode } from "../../utils/runMode";
-import { EffectRegistry } from "../effects/effectRegistry";
-import { EFFECT_LIFECYCLE } from "../effects/constants/effectLifecycles";
-import { TRIGGER_SOURCE } from "../triggers/constants/triggerSources";
 import { JobQueue } from "./jobQueue";
 import { cancelPayloadSchema } from "./schemas/jobPayloads";
 import type { JobRecord } from "./types/job";
@@ -25,8 +22,8 @@ const CANCELABLE_STATUSES: readonly string[] = [
  * CancelHandler — finalizes a claimed `cancel` job (step 06 task 4,
  * Invariant 7): the cancel intent is journaled write-ahead, the remote
  * cancel (agent-port kill per running run row) happens OUTSIDE any
- * transaction, then the declared `cancel` transition through the authority,
- * the flow touch, and the step-child terminal notifications.
+ * transaction, then the declared `cancel` transition through the authority
+ * and the flow touch.
  *
  * Used by BOTH callers — `flowEngine.cancelNode` (inline: claim the intent
  * it just enqueued and run this handler) and the worker sweep's
@@ -44,13 +41,7 @@ const CANCELABLE_STATUSES: readonly string[] = [
  * claimed after completion (a later cancel-after-retry must enqueue fresh).
  */
 export class CancelHandler {
-  constructor(
-    private readonly jobs: JobQueue = new JobQueue(),
-    /** the effect/join layer (step 07): the child-terminal notification is a
-     *  registration, not a manager call — callers pass the engine's registry;
-     *  the default empty registry keeps a bare handler a no-op dispatcher */
-    private readonly effects: EffectRegistry = new EffectRegistry(),
-  ) {}
+  constructor(private readonly jobs: JobQueue = new JobQueue()) {}
 
   async handle(job: JobRecord): Promise<void> {
     const parsed = cancelPayloadSchema.safeParse(job.payload);
@@ -83,18 +74,6 @@ export class CancelHandler {
     });
     await engineParts.transitions.applyOrThrow(flowId, nodeKey, "cancel");
     await db.prisma.flow.update({ where: { id: flowId }, data: { updatedAt: db.now() } });
-    // child-terminal notification (step 07): a stopped step child surfaces
-    // failed in its parent's rollup — the registered onChildTerminal effects
-    // react (no-op without fan-out/split linkage; the wildcard registrations
-    // don't key on the defKey)
-    await this.effects.run(EFFECT_LIFECYCLE.ON_CHILD_TERMINAL, {
-      flowId,
-      nodeKey,
-      defKey: "",
-      status: NODE_STATUS.FAILED,
-      output: null,
-      source: TRIGGER_SOURCE.UI,
-    });
     // free the dedup key so the node can be cancelled again after a retry
     await this.jobs.clearDedupKey(job.id);
   }

@@ -48,7 +48,7 @@ The GitLab integration is the engine's only registered git host: it opens merge 
 3. `gitHostRegistry.forRepo(repoUrl)` → reuse an open CR on the source branch, or `createChangeRequest` titled `TASK-KEY: summary` targeting the repo's default branch.
 4. Persist: `mr_url` / `mr_iid` / `gitlab_project_id` on the flow row (single-branch) or the branch row via `branchStore.upsert` (multi-branch); emit a `lifecycle` event; `resetGateReview` drops gate/review nodes back to `pending` (never touching `running`).
 
-`createWithFixes` adds the service's own bounded fix loop: on `CommitError` it invokes the caller's `runFix` callback and retries, up to `maxAttempts`; infra errors throw immediately. The SDLC chain (`lib/engine/nodes/chains/sdlcChain.ts`) calls it after build approval with a commit-fix agent as `runFix`; the fan-out merge arena (`lib/engine/runtime/fanout/mergeArena.ts`) reuses the same hook-rejection signatures. Typed errors live in `errors.ts`: `CommitError` (agent-fixable push rejection), `isHookRejection` (the pre-push/pre-receive pattern set), `MrCreationFailed` + `toMrCreationFailure` (mapping approve-build failures).
+`createWithFixes` adds the service's own bounded fix loop: on `CommitError` it invokes the caller's `runFix` callback and retries, up to `maxAttempts`; infra errors throw immediately. The SDLC chain (`lib/engine/nodes/chains/sdlcChain.ts`) calls it after build approval with a commit-fix agent as `runFix`. Typed errors live in `errors.ts`: `CommitError` (agent-fixable push rejection), `isHookRejection` (the pre-push/pre-receive pattern set), `MrCreationFailed` + `toMrCreationFailure` (mapping approve-build failures).
 
 ### Error taxonomy
 

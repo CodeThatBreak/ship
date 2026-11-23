@@ -7,13 +7,11 @@ import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
 import { agentRunner, type AgentRunner } from "../../../harness/harnessExports";
 import { AgentRunNode, flowCtxHelper, nodeRoles, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type RunOutcome } from "../../shared/nodeSharedExports";
-import { DEFAULT_FANOUT_OUTPUT } from "../../shared/schemas/defaultOutputs";
 import type { NodeCapabilities } from "../../shared/capabilities";
-import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../../../constants/nodeKeys";
+import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
 import { DEFAULT_MCP_SOURCES, mcpSourcesSchema } from "../../../templates/schemas/mcpSources";
-import { configString, fanoutConfigFields, mcpSourcesOf, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
-import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split/schemas/splitKnobs";
+import { configString, mcpSourcesOf, mcpSourceConfigFields } from "../../../templates/nodeConfig";
 import type { NodeSupport } from "../../shared/nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import { BuildRunSupport } from "./buildRunSupport";
@@ -26,16 +24,14 @@ import { BuildConsumes, BuildInput, BuildOutput } from "./schema";
 
 /**
  * The build def (the SDLC chain's code stage): triggerRuns materializes the
- * approved plan (whole / multi-branch sequential), the fan-out manager owns
- * step children, and a split child consumes its unit via `splitUnitItemOf`.
+ * approved plan (whole / multi-branch sequential).
  *
  * Composition (engine overhaul §12): the def is a thin orchestrator over its
  * collaborators — `BuildTriggerPlanner` (engine-trigger materialization:
- * split-unit consumption, approved-plan read, multi-branch decomposition),
- * `BuildPromptAssembler` (the ONE run/preview prompt assembly path) and
- * `BuildFinalizer` (the build terminal: checklist progress, branch row, diff
- * artifact). The def itself keeps the declarative metadata and the
- * run/refine/chat/recover orchestration.
+ * approved-plan read, multi-branch decomposition), `BuildPromptAssembler`
+ * (the ONE run/preview prompt assembly path) and `BuildFinalizer` (the build
+ * terminal: checklist progress, branch row, diff artifact). The def itself
+ * keeps the declarative metadata and the run/refine/chat/recover orchestration.
  */
 export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
@@ -45,7 +41,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    *  precedent): it carries the prompt body against the approved plan. */
   override readonly capabilities: NodeCapabilities = {
     panelTitle: "Code changes",
-    fanoutOutput: DEFAULT_FANOUT_OUTPUT,
     refinable: true,
     promptNode: NODE_KEYS.BUILD,
     startLabel: "Start build",
@@ -78,7 +73,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     this.finisher = new BuildFinalizer(support, this.buildRun, BuildOutput, this.key);
   }
 
-  readonly inputSchema = BuildInput; // includes the optional fan-out `step` (see schema.ts)
+  readonly inputSchema = BuildInput;
   readonly outputSchema = BuildOutput;
   override readonly consumes = BuildConsumes;
   /** validation-only: the build-progress fence has no feedback turn — a
@@ -97,54 +92,15 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     branch_pattern: z.string().default(""),
     /** commit-fix agent attempts when the push is rejected during MR creation (engine-consumed) */
     max_commit_fix_attempts: z.number().int().min(1).default(2),
-    /**
-     * merge-fix agent attempts when a fan-out step branch conflicts with (or
-     * is stale against) the integration branch at merge-back — Phase 2A, read
-     * from the PARENT fan-out node's config by the StepFlowManager
-     */
-    max_merge_fix_attempts: z.number().int().min(1).default(2),
-    // plan fan-out knob (flat keys — fanoutOf reads nested `fanout` objects too)
-    fanout_mode: z.enum(["whole", "steps", "from-plan"]).default("whole"),
-    fanout_child: z.string().nullable().default(null),
-    fanout_parallel_max: z.number().int().min(1).default(1),
     /** ambient MCP servers for build/refine agent runs — defaults to ALL sources enabled */
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
-    // split-consumption knob (agent-node split plan §2.4 — Phase 4; the
-    // Phase 6 default is "source"): the consumer defers to the plan source's
-    // published resolution (`splitResolution`) — the plan node recommends
-    // whole, or per-unit branch fan-out under `follow`/legacy `steps`.
-    split_consume: splitConsumeSchema.default("source"),
-    split_parallel_max: splitParallelMaxSchema,
   });
   override readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
     { key: "branch_pattern", label: "Branch pattern", type: "string", help: "Tokens: {prefix} {slug} {ticket} {id} {suffix}. Empty = built-in bugfix/feature pattern." },
     { key: "max_commit_fix_attempts", label: "Max commit-fix attempts", type: "number", help: "Commit-fix agent runs when the push is rejected while creating the MR." },
-    { key: "max_merge_fix_attempts", label: "Max merge-fix attempts", type: "number", help: "Merge-fix agent runs per step child when its branch conflicts with (or is stale against) the integration branch at merge-back. Exhaustion fails the step visibly." },
-    // the fan-out section: plan-downstream-capable built-ins carry one shared field set
-    ...fanoutConfigFields,
     ...mcpSourceConfigFields,
-    // the split-consumption section (agent-node split plan §2.4 — Phase 4)
-    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
-
-  /**
-   * Fan-out (§T3/F5): the build def's fallback child is the seeded step build
-   * — the fan-out manager consults this def method instead of comparing the
-   * parent's def key to a literal.
-   */
-  override childTemplateId(): string | null {
-    return STEP_BUILD_TEMPLATE_ID;
-  }
-
-  /**
-   * Split-child consumption (§2.4 — Phase 6): the unit trigger payload IS
-   * the run input; null on an ordinary parent-flow build.
-   * {@link BuildTriggerPlanner} owns the materialization.
-   */
-  override triggerInput(ctx: FlowCtx): BuildInput | null {
-    return this.triggerPlanner.triggerInput(ctx);
-  }
 
   /**
    * Engine-triggered runs (the plan → build edge activation when the plan is

@@ -111,8 +111,8 @@ const runDeclaredEffects = async (
 };
 
 /** Boot-time registration (called from the FlowEngine constructor beside
- *  `registerSdlcEffects`/`registerFanoutEffects`). The `catalogKindOf` seam
- *  exists for tests; production wiring uses the templateStore-backed read. */
+ *  `registerSdlcEffects`). The `catalogKindOf` seam exists for tests;
+ *  production wiring uses the templateStore-backed read. */
 export const registerDeclarativeEffects = (
   effects: EffectRegistry,
   verbs: VerbRegistry,

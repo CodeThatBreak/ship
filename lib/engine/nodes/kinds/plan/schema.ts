@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { z } from 'zod';
-import { detectUnitCycle } from '../../shared/nodeSharedExports';
 import { rejectInvalidBranchNameShape } from '../../../../git/branchName';
 import { PlanTurnKind } from './constants/planTurn';
 
@@ -52,7 +51,7 @@ export function withStepIds(steps: PlanStep[]): PlanStep[] {
 
 /**
  * The plan runtime meta: the checklist plus the optional branch decomposition.
- * Persisted in plan artifact meta and consumed by the steps store / fan-out.
+ * Persisted in plan artifact meta and consumed by the steps store.
  */
 export type PlanMeta = {
   steps: PlanStep[];
@@ -105,6 +104,36 @@ export const parsePlanArtifactMeta = (raw: unknown): PlanMeta | null => {
 
 // ── the whole-plan response (JSON-only) ──────────────────────────────────────
 
+/** First dependency cycle in the branch DAG, or null when it is acyclic. */
+const detectBranchCycle = (branches: { name: string; dependsOn: string[] }[]): string[] | null => {
+  const deps = new Map(branches.map((b) => [b.name, b.dependsOn]));
+  const state = new Map<string, 0 | 1 | 2>();
+  const stack: string[] = [];
+  const visit = (name: string): string[] | null => {
+    const seen = state.get(name) ?? 0;
+    if (seen === 1) {
+      const start = stack.indexOf(name);
+      return start >= 0 ? [...stack.slice(start), name] : [name, name];
+    }
+    if (seen === 2) return null;
+    state.set(name, 1);
+    stack.push(name);
+    for (const dep of deps.get(name) ?? []) {
+      if (!deps.has(dep)) continue; // unknown dep — reported separately
+      const cycle = visit(dep);
+      if (cycle) return cycle;
+    }
+    stack.pop();
+    state.set(name, 2);
+    return null;
+  };
+  for (const name of deps.keys()) {
+    const cycle = visit(name);
+    if (cycle) return cycle;
+  }
+  return null;
+};
+
 /**
  * The ONE plan response schema (§F1): markdown + steps + optional branches.
  * The plan-domain cross-checks (unique branch names, dependsOn resolution,
@@ -120,15 +149,6 @@ export const PlanResponse = z
     steps: z.array(PlanStep).min(1),
     /** Branch decomposition for multi-part work. */
     branches: z.array(PlanBranch).optional(),
-    /**
-     * Phase 3B (`execution_default: follow`): the planner's execution
-     * resolution for this plan version — a plain STRING on purpose: an
-     * unexpected value must never fail the plan (normalizePlannerExecution
-     * maps unknown/missing to `whole`).
-     */
-    execution: z.string().optional(),
-    /** One-line rationale published with the execution under `follow` (Phase 3B). */
-    execution_rationale: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     const branchNames = new Set<string>();
@@ -151,11 +171,9 @@ export const PlanResponse = z
         }
       }
       // branch DAG: a dependency cycle would deadlock the per-branch
-      // scheduler — the split runtime fails expansion on one (§3), so the
-      // plan contract rejects it here, where the retry feedback can fix it
-      const cycle = detectUnitCycle(
-        (val.branches ?? []).map(b => ({ key: b.name, title: b.title, dependsOn: b.dependsOn, item: b }))
-      );
+      // scheduler, so the plan contract rejects it here, where the retry
+      // feedback can fix it
+      const cycle = detectBranchCycle(val.branches ?? []);
       if (cycle) {
         ctx.addIssue({
           code: 'custom',

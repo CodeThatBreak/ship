@@ -28,7 +28,7 @@ The flow engine is the orchestrator behind every flow: it creates flows from tem
 
 The narrow host interfaces each collaborator consumes are declared in `runtime/flowEngineHost.ts` (`WaitSchedulerHost`, `EdgeActivatorHost`, …) — collaborators never see the full engine.
 
-The engine itself keeps: the SDLC builtin chain (`chains/sdlcChain.ts` — `approvePlan`, `approveBuild`, `triggerPipelineGate`, `triggerReview`, `triggerResolve`), node claiming and background execution (`claimNode`, `bg`), plan-step editing, fan-out/split unit actions (`approveFanoutStep`, `skipFanoutStep`, `approveSplitUnit`, …), and generic actions (`runNodeManual`, `approveNode`, `chooseNode`, `setNodeConfig`).
+The engine itself keeps: the SDLC builtin chain (`chains/sdlcChain.ts` — `approvePlan`, `approveBuild`, `triggerPipelineGate`, `triggerReview`, `triggerResolve`), node claiming and background execution (`claimNode`, `bg`), plan-step editing, and generic actions (`runNodeManual`, `approveNode`, `chooseNode`, `setNodeConfig`).
 
 ### Run lifecycle
 
@@ -36,7 +36,7 @@ The engine itself keeps: the SDLC builtin chain (`chains/sdlcChain.ts` — `appr
 2. `claimNode` flips the node to `running` with a fresh `attempt_id` (the supersede fence) and `bg` executes the bundle asynchronously.
 3. The def's `triggerRuns(ctx)` yields one or more `NodeTriggerRun`s (multi-run for the sequential multi-branch build); each input is `parseInput`-validated.
 4. The def's `run()` produces a `RunOutcome` persisted through the single door `applyOutcome` (artifact, validated output, status, lifecycle event).
-5. Terminal success → `advanceFrom(flowId, key)` re-evaluates outgoing edges; fan-out/split parents finish through `finishFanout` / `finishSplit`.
+5. Terminal success → `advanceFrom(flowId, key)` re-evaluates outgoing edges.
 
 A late-finishing run whose `attempt_id` no longer matches the node row is fenced by `RunSupersededError` (`errors/runSupersededError.ts`) and persists nothing.
 
@@ -44,16 +44,16 @@ A late-finishing run whose `attempt_id` no longer matches the node row is fenced
 
 | Piece | Role |
 |-------|------|
-| `FlowPoller` (`runtime/flowPoller.ts`) | 30 s tick over active flows: `processWaitTimers`, due `schedule` template triggers (`scheduleTrigger.nextScheduleFireAt` advances in whole intervals — no drift), reconciler pass, then per-MR pipeline + discussion polling via the git host port. New open comments bounce the resolve debounce. Poller startup also runs the one-time worktree sweep, stuck `step_merges` sweep, and wait-timer re-arm. |
+| `FlowPoller` (`runtime/flowPoller.ts`) | 30 s tick over active flows: `processWaitTimers`, due `schedule` template triggers (`scheduleTrigger.nextScheduleFireAt` advances in whole intervals — no drift), reconciler pass, then per-MR pipeline + discussion polling via the git host port. New open comments bounce the resolve debounce. Poller startup also runs the one-time worktree sweep and wait-timer re-arm. |
 | `Reconciler` (`runtime/flowReconciler.ts`) | Re-syncs nodes stuck in `running` with their real agent run (local: re-attach to persisted workspace state; cloud: query the Cursor API by durable run handle), throttled 20 s per flow. Recovery delegates to the def's `recover()`. |
 | `NodeStore` / `HookStore` / `CommentStore` / `PlanStepStore` (`runtime/*.ts`) | Table access layers for engine orchestrators; node kinds use `NodeSupport` instead (see `node-infra.md`). `HookStore` binds inbound webhooks to templates or waiting nodes (`standardwebhooks` verification or shared-secret fallback, delivery dedup by `webhook-id`). |
 | `WorktreeManager` / `WorktreeStatusService` (`runtime/worktreeLifecycle.ts`, `worktreeStatusService.ts`) | Local-mode worktree binding, setup, crash-safe removal, and the worktree-status read model — see `git.md`. |
 | `GraphService` (`graph/graphService.ts`) | Resolves the workflow graph payload for `GET /api/graph` — builtin registry graph, a template's stored graph, or a flow's snapshot. |
-| Flow context (`context/flowVariables.ts`) | The single variable universe (`task`, `repo`, `flow`, `trigger`, `nodes`, `input.unit`) every JSONata expression and `{{...}}` template evaluates against. `secrets` is deliberately excluded — secret values resolve only inside http-node config interpolation at execution time. |
+| Flow context (`context/flowVariables.ts`) | The single variable universe (`task`, `repo`, `flow`, `trigger`, `nodes`, plus generic start-payload aliases) every JSONata expression and `{{...}}` template evaluates against. `secrets` is deliberately excluded — secret values resolve only inside http-node config interpolation at execution time. |
 
 ### Flow deletion
 
-`delete` removes the flow-owned tables in FK-safe order (`FLOW_CHILD_TABLES`: `step_merges`, `plan_steps`, `events`, `messages`, `runs`, `artifacts`, `comments`, `branches`, `nodes`, `hooks`, then `flows`), plus worktree cleanup.
+`delete` removes the flow-owned tables in FK-safe order (`FLOW_CHILD_TABLES`: `plan_steps`, `events`, `messages`, `runs`, `artifacts`, `comments`, `branches`, `nodes`, `hooks`, then `flows`), plus worktree cleanup.
 
 ## API surface
 
@@ -63,7 +63,7 @@ A late-finishing run whose `attempt_id` no longer matches the node row is fenced
 |-------|-------------------|
 | `GET /api/flows`, `POST /api/flows` | `list`, `FlowFactory.create` |
 | `GET /api/flows/:id`, `DELETE /api/flows/:id` | `get`, `delete` |
-| `POST /api/flows/:id/action` | action dispatch: `approvePlan`, `approveBuild`, `approveNode`, `runNodeManual`, `retryNode`, `cancel`, `updatePlanSteps`, `setPlanStepStatus`, fan-out/split unit actions, `chooseNode`, `setNodeConfig` |
+| `POST /api/flows/:id/action` | action dispatch: `approvePlan`, `approveBuild`, `approveNode`, `runNodeManual`, `retryNode`, `cancel`, `updatePlanSteps`, `setPlanStepStatus`, `chooseNode`, `setNodeConfig` |
 | `POST /api/flows/:id/chat` | `sendChat` → the node's `turn`/`chat`/`converse` |
 | `GET /api/flows/:id/events` | event feed read |
 | `GET /api/flows/:id/comments` | ingested comment read |
@@ -79,7 +79,7 @@ Actions arrive as `POST /api/flows/:id/action` bodies validated by `lib/schemas/
 
 ## Data model
 
-Engine-owned tables (see `database.md` for the access layer): `flows` (with `template_graph` snapshot), `nodes` (status, `input`, `output`, `attempt_id`, config snapshot), `runs` (token/cost rollup via `utils/runTokenRollup.ts`), `artifacts`, `events`, `messages`, `comments`, `branches`, `plan_steps`, `step_merges`, `hooks`, `hook_deliveries`.
+Engine-owned tables (see `database.md` for the access layer): `flows` (with `template_graph` snapshot), `nodes` (status, `input`, `output`, `attempt_id`, config snapshot), `runs` (token/cost rollup via `utils/runTokenRollup.ts`), `artifacts`, `events`, `messages`, `comments`, `branches`, `plan_steps`, `hooks`, `hook_deliveries`.
 
 ## Out of scope
 

@@ -207,7 +207,6 @@ Validated by `reviewCommentItemSchema` (`file` / `line` optional, `body` non-emp
 - Human-review approval semantics (approving the MR itself) — the flow treats comments as data, not gates.
 - The resolve-side fix loop and its termination condition — see [`resolve-node.md`](./resolve-node.md).
 - Pipeline gating and fix pipelines — owned by the pipeline node.
-- Per-branch fan-out review (`split_consume` knobs are declared on the config schema; the split runtime is documented separately).
 
 ## Related code index
 

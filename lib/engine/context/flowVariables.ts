@@ -18,8 +18,6 @@ import type { BranchStatus } from "../../db/constants/rowStatuses";
  *   branches { <name>: { mr_iid, mr_url, status } } — the flow's branch rows
  *   trigger { payload }            — the payload that started the flow
  *   nodes   { <node_key>: { output } }
-   input   { unit }               — split children (agent-node split plan §2.1):
-                                    the own unit rides {{input.unit.*}}
  *
  * `secrets` is deliberately NOT part of the map: secret values only resolve
  * inside http node config interpolation, at execution time, and never persist
@@ -32,15 +30,6 @@ export interface FlowContextMap extends Record<string, unknown> {
   branches: Record<string, { mr_iid: number | null; mr_url: string; status: BranchStatus }>;
   trigger: { payload: unknown };
   nodes: Record<string, { output: unknown }>;
-  /** plan fan-out step children (Phase 1): the plan context, the own step and
-   *  the sibling summaries — plain-empty on ordinary flows (no payload). */
-  plan?: Record<string, unknown>;
-  step?: Record<string, unknown>;
-  siblings?: Record<string, unknown>[];
-  /** split runtime children (agent-node split plan §2.1): the own unit —
-   *  `{{input.unit.*}}` renders the item data; plain-empty on ordinary
-   *  flows (no split payload). */
-  input?: { unit: Record<string, unknown> };
 }
 
 export async function buildFlowContext(ctx: FlowCtx): Promise<FlowContextMap> {
@@ -59,19 +48,6 @@ export async function buildFlowContext(ctx: FlowCtx): Promise<FlowContextMap> {
   }
   let payload: unknown = ctx.flow.triggerPayload ?? null;
   if (typeof payload === "string") payload = parseJsonObject(payload);
-  // plan fan-out step children: the trigger payload carries {plan, step,
-  // siblings} — alias them at the top level so child templates render the
-  // documented step variables ({{plan}}, {{step.id}}, {{siblings}}) with the
-  // existing renderers. Ordinary flows (no step payload) resolve empty strings.
-  const p = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
-  const step = (p.step && typeof p.step === "object" ? p.step : {}) as Record<string, unknown>;
-  const planPart = (p.plan && typeof p.plan === "object" ? p.plan : {}) as Record<string, unknown>;
-  const siblings = Array.isArray(p.siblings) ? (p.siblings as Record<string, unknown>[]) : [];
-  // split runtime children: the trigger payload carries {parentNodeKey, unit} —
-  // the unit is aliased at the top level so child templates render the
-  // documented split variables ({{input.unit.key}}, {{input.unit.item.*}}).
-  // Ordinary flows (no split payload) resolve an empty unit.
-  const unit = (p.unit && typeof p.unit === "object" ? p.unit : {}) as Record<string, unknown>;
   return {
     task: taskContextOf(ctx),
     repo: {
@@ -86,10 +62,6 @@ export async function buildFlowContext(ctx: FlowCtx): Promise<FlowContextMap> {
     branches,
     trigger: { payload },
     nodes,
-    plan: planPart,
-    step,
-    siblings,
-    input: { unit },
   };
 }
 

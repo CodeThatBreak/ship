@@ -35,9 +35,8 @@ Parsing and apply: **one turn envelope** (`reply` + optional payload). Main / pr
 
 ## Non-goals (this iteration)
 
-- Changing checklist editing, approve footer, split/fan-out, or build consumption.
+- Changing checklist editing, approve footer, or build consumption.
 - Template editor / `prompt_body` knob (still applies on every turn’s prompt assembly).
-- StepFlowManager / per-checklist-step child flows.
 - Rewriting prompt copy in `prompt-defaults` beyond contract/schema references.
 
 ---
@@ -111,7 +110,7 @@ export const PlanTurnOutput = z
   });
 ```
 
-**`PlanResponse`** — unchanged (master plan: markdown, steps, optional branches, execution fields).
+**`PlanResponse`** — unchanged (master plan: markdown, steps, optional branches).
 
 **`SubPlanResponse`** — unchanged today (`markdown` + `steps` for **one** branch). Engine sets `step.branch` on merge. Use when the agent rewrites the entire branch sub-plan (first branch doc, or large reshuffle).
 
@@ -245,7 +244,7 @@ User asks for a substantive change on the main thread. Agent re-emits a **full**
 
 #### E — First plan with branch decomposition (Rule 1 or 2)
 
-Same envelope as B/D; `plan.branches` fans out at build when execution resolves to per-unit. Step `branch` fields must reference known branch names.
+Same envelope as B/D; `plan.branches` scope per-branch refine turns. Step `branch` fields must reference known branch names.
 
 ```json
 {
@@ -381,24 +380,7 @@ Use when the branch had **no** `markdown` yet, or the user asked for a full rewr
 
 **Anti-pattern (do not use on branch turns):** a full `plan` with every branch re-listed — wastes tokens and bypasses merge guards.
 
-#### H — Planner execution hint (`execution_default: follow`)
-
-When the node knob is `follow`, the planner may set execution resolution on the **plan** object (unknown values normalize to `whole` at publish time).
-
-```json
-{
-  "reply": "Recommend fan-out per branch because auth and billing can land independently after the shared contract.",
-  "plan": {
-    "markdown": "# …\n",
-    "steps": [{ "title": "…", "detail": "", "files": [], "branch": "auth" }],
-    "branches": [{ "name": "auth", "title": "Auth", "scope": "", "files": [], "steps": ["s1"], "dependsOn": [] }],
-    "execution": "steps",
-    "execution_rationale": "Independent MRs per branch after shared contract merges."
-  }
-}
-```
-
-#### I — Explicit no publish (`plan` / `subPlan` / `subPlanPatch`: null)
+#### H — Explicit no publish (`plan` / `subPlan` / `subPlanPatch`: null)
 
 Same as omitting publish keys (reply-only turn).
 
@@ -409,7 +391,7 @@ Same as omitting publish keys (reply-only turn).
 }
 ```
 
-#### J — Agent error envelope (no plan publish)
+#### I — Agent error envelope (no plan publish)
 
 When the agent cannot proceed, it uses the standard harness error shape (handled like today—**reply** conveys `reason`; no version).
 
@@ -422,7 +404,7 @@ When the agent cannot proceed, it uses the standard harness error shape (handled
 
 *(Exact envelope keys match `AgentOutputError.reported` in the engine; not a valid `PlanTurnOutput`, so the turn does not apply a plan.)*
 
-#### K — Invalid `plan` when present (bounded retry)
+#### J — Invalid `plan` when present (bounded retry)
 
 Example: duplicate step ids or a step referencing an unknown branch. Outer envelope parses; inner `plan` fails `PlanResponse` refinements.
 

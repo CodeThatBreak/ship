@@ -14,7 +14,6 @@ import {
   type RunOutcomeFacts,
 } from "../../shared/nodeSharedExports";
 import { DeclarativeAgentNode } from "../../shared/declarativeNode";
-import { parseConfigSnapshot } from "../../../templates/nodeConfig";
 import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
 import { failedOutputOutcome } from "../../shared/agentOutput/failedOutputOutcome";
 import { RETRYABLE_OUTPUT_ERRORS } from "../../shared/agentOutput/constants/agentOutput";
@@ -23,8 +22,6 @@ import { retryFeedbackBody } from "../../shared/agentOutput/utils/retryFeedback"
 import { AgentDefSchema, type AgentDef } from "../../schemas/declarativeSchemas";
 import type { RenderedBlock } from "../../../prompts/promptLibrary/types/promptLibrary";
 import { nodeRoles, type NodePromptPreview, type PromptPreviewParams } from "../../shared/nodeSharedExports";
-import type { SplitUnit } from "../../shared/nodeSharedExports";
-import { splitDirective } from "./splitDirective";
 import { resolveStartingRef } from "./baseRefResolver";
 import { retryBudgetOf } from "./retryBudget";
 import { AGENT_CONFIG_FIELDS } from "./constants/agentConstantsExports";
@@ -39,7 +36,6 @@ import {
   renderAgentFeedback,
   renderAgentPrompt,
 } from "./agentPrompt";
-import { agentSplitUnits } from "./agentSplitUnits";
 import { agentFactIntents } from "./agentFactIntents";
 import { shapeAgentOutcome } from "./agentOutcome";
 import { prepareAgentStart } from "./agentStartContext";
@@ -56,10 +52,9 @@ export type { AgentDef };
  * status, streaming, cost, artifacts, output validation. No new infrastructure.
  *
  * This is the kind's thin orchestrator (§3.11): it wires the lifecycle
- * (run / chat / recover / previewPrompt / splitUnits) onto the shared
- * `AgentRunNode` tier and delegates the mechanics — prompt assembly to
- * `agentPrompt.ts` (the ONE prompt path run/chat/preview share, so the
- * preview cannot drift) and split-unit mapping to `agentSplitUnits.ts`.
+ * (run / chat / recover / previewPrompt) onto the shared `AgentRunNode` tier
+ * and delegates prompt assembly to `agentPrompt.ts` (the ONE prompt path
+ * run/chat/preview share, so the preview cannot drift).
  * Invariants upheld: every agent response is published only through the
  * output contract (`applyOutput` — never an unvalidated pass-through), and
  * every prompt surface rides the same contract directives (composeAgentPrompt).
@@ -165,8 +160,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * Live prompt preview (step 05): the composed prompt a fresh run would
    * send, built through the SAME `getPrompt`/`composePrompt` path `run()`
    * uses so the preview is byte-identical to the run bytes — the config
-   * prompt rendered against the flow vars, plus the contract/split
-   * directives as the display blocks. The recorded run input is not
+   * prompt rendered against the flow vars, plus the contract directive as
+   * the display block. The recorded run input is not
    * consulted here (the modal's last-run overlay shows that separately).
    * Returns null when no prompt is configured — nothing would be sent.
    */
@@ -184,40 +179,11 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         text: agentContractDirective(cfg, this.outputSchema),
       });
     }
-    if (cfg.split) {
-      blocks.push({ kind: "rules", text: splitDirective(cfg.split) });
-    }
     return {
       templateKey: this.declarativeKind,
       configBody: cfg.prompt,
       assembly: { body, blocks, final: composeAgentPrompt(body, cfg, this.outputSchema) },
     };
-  }
-
-  /**
-   * The split source port (agent-node split plan §2.1, Phase 3): the node
-   * reads its own recorded output and answers "here are my units" — the
-   * mapping itself lives in `agentSplitUnits.ts`. The items are
-   * schema-validated data by construction (`applyOutput` already enforced the
-   * output contract) — NO second validation pass. The node never spawns
-   * anything; it only answers "here are my units". A malformed array is a
-   * producer error — loud, like a contract failure (see agentSplitUnits).
-   */
-  override async splitUnits(ctx: FlowCtx): Promise<SplitUnit[] | null> {
-    const cfg = this.runConfig(await this.nodeConfig(ctx));
-    const split = cfg.split;
-    if (!split) return null;
-
-    // nodeByKey returns the RAW row (db.get does not map): the `output`
-    // column is the JSON TEXT blob here, not the decoded shape — parse it
-    // before reading the split field (parseConfigSnapshot yields {} for a
-    // missing/unreadable blob → no array → null, no expansion; an
-    // already-decoded record is tolerated too)
-    const rawOutput: unknown = (await this.node(ctx)).output;
-    const output = parseConfigSnapshot(
-      typeof rawOutput === "string" || rawOutput == null ? rawOutput : JSON.stringify(rawOutput),
-    );
-    return agentSplitUnits(split, output, this.label);
   }
 
   /**

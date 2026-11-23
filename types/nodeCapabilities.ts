@@ -6,10 +6,9 @@
  * instead of reaching into lib/engine.
  *
  * `NodeUiCapabilities` is what actually crosses the server→client boundary —
- * the flow snapshot projects each node's def capabilities onto it (the
- * engine-only `mergeBack` callback and `fanoutOutput` Zod contract can't be
- * serialized). `NodeCapabilities` is the full engine-side shape, re-exported
- * for consumers that hold a def directly.
+ * the flow snapshot projects each node's def capabilities onto it.
+ * `NodeCapabilities` is the same plain-data shape, re-exported for consumers
+ * that hold a def directly.
  */
 export type {
   NodeCapabilities,

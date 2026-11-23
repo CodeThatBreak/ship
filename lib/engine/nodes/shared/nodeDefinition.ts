@@ -7,7 +7,7 @@ import { flowCtxHelper } from "./runContext";
 import type { FlowContextHelper } from "./runContext/flowContextHelper";
 import type { FlowCtx } from "./runContext/types/flowContext";
 import type { NodeSupport } from "./nodeSupport";
-import { nodeSupport } from "@/lib/composition/container";import type { SplitUnit } from "./split";
+import { nodeSupport } from "@/lib/composition/container";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/nodeConfig";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../templates/nodeConfig";
@@ -237,41 +237,6 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    */
   async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
     return [{ input: this.triggerInput(ctx) }];
-  }
-
-  // ── split source port (agent-node split plan §2.1) — default null = the
-  //    node is not a split source; zero behavior change until a def overrides ──
-
-  /**
-   * The units this node's run publishes from its output, or null when the
-   * node is not a split source. The producer only answers "here are my
-   * units" — it never spawns anything (§2.1); the split runtime (Phase 2)
-   * owns expansion/scheduling/join.
-   */
-  async splitUnits(_ctx: FlowCtx): Promise<SplitUnit[] | null> {
-    void _ctx;
-    return null;
-  }
-
-  /**
-   * The source's published resolution recommendation, honored only by
-   * consumers whose `split_consume` knob is `source` (§2.4). Null = no
-   * recommendation (a `source` consumer then falls back to `whole`).
-   */
-  async splitResolution(_ctx: FlowCtx): Promise<"whole" | "per-unit" | null> {
-    void _ctx;
-    return null;
-  }
-
-  /**
-   * Fan-out (§5): the child template id this def fans out to by default, or
-   * null — the def auto-wraps itself ("a fallback default, not a hard
-   * binding — every other node auto-wraps itself", spec §1). The fan-out
-   * manager consults this instead of comparing the parent's def key to a
-   * literal (§T3/F5).
-   */
-  childTemplateId(): string | null {
-    return null;
   }
 
   /**

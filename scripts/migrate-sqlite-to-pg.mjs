@@ -204,7 +204,6 @@ const TABLES = [
     executionMode: r.execution_mode ?? "cloud", repoId: r.repo_id,
     templateId: r.template_id, templateGraph: json(r.template_graph, `flow ${r.id}`),
     triggerPayload: json(r.trigger_payload, `flow ${r.id}`), worktreeDir: r.worktree_dir,
-    parentFlowId: r.parent_flow_id, kind: r.kind ?? "sdlc",
     createdAt: ts(r.created_at, `flow ${r.id}`), updatedAt: ts(r.updated_at, `flow ${r.id}`),
   })],
   ["branch", "branches", (r) => ({
@@ -255,13 +254,8 @@ const TABLES = [
     id: r.id, flowId: r.flow_id, artifactId: r.artifact_id, metaId: r.meta_id,
     position: r.position, title: r.title, detail: r.detail,
     files: json(r.files, `plan_step ${r.id}.files`), branch: r.branch, status: r.status,
-    origin: r.origin, completedBy: r.completed_by, subFlowId: r.sub_flow_id,
+    origin: r.origin, completedBy: r.completed_by,
     createdAt: ts(r.created_at, `plan_step ${r.id}`), updatedAt: ts(r.updated_at, `plan_step ${r.id}`),
-  })],
-  ["stepMerge", "step_merges", (r) => ({
-    id: r.id, flowId: r.flow_id, parentFlowId: r.parent_flow_id, parentNode: r.parent_node,
-    branch: r.branch, status: r.status, attempts: r.attempts, error: r.error,
-    createdAt: ts(r.created_at, `step_merge ${r.id}`), updatedAt: ts(r.updated_at, `step_merge ${r.id}`),
   })],
   ["hook", "hooks", (r) => ({
     id: r.id, templateId: r.template_id, flowId: r.flow_id, nodeKey: r.node_key,
@@ -279,37 +273,13 @@ const TABLES = [
 ];
 
 const TARGET_TABLE_NAMES = [
-  "step_merges", "plan_steps", "events", "messages", "runs", "artifacts", "comments",
+  "plan_steps", "events", "messages", "runs", "artifacts", "comments",
   "branches", "nodes", "hooks", "hook_deliveries", "flows", "flow_template_edges",
   "flow_template_nodes", "node_templates", "flow_templates", "worktree_removals",
   "settings", "gitlab_instances", "jira_instances", "repos", "tasks",
 ];
 
 const BATCH = 500;
-
-/** Order flows parents-first so the self-FK (parent_flow_id) is satisfied. */
-function flowsParentsFirst(rows) {
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const placed = new Set();
-  const out = [];
-  let pending = [...rows];
-  while (pending.length) {
-    const progressed = pending.filter(
-      (r) => !r.parent_flow_id || placed.has(r.parent_flow_id) || !byId.has(r.parent_flow_id),
-    );
-    if (!progressed.length) {
-      // cyclic or dangling parents — let Postgres reject it loudly
-      out.push(...pending);
-      break;
-    }
-    for (const r of progressed) {
-      placed.add(r.id);
-      out.push(r);
-    }
-    pending = pending.filter((r) => !placed.has(r.id));
-  }
-  return out;
-}
 
 async function truncateTarget() {
   const names = TARGET_TABLE_NAMES.map((t) => `"${t}"`).join(", ");
@@ -319,9 +289,8 @@ async function truncateTarget() {
 
 async function loadTable(model, table, map) {
   const rows = sqlite.prepare(`SELECT * FROM "${table}"`).all();
-  const ordered = table === "flows" ? flowsParentsFirst(rows) : rows;
-  for (let i = 0; i < ordered.length; i += BATCH) {
-    const chunk = ordered.slice(i, i + BATCH).map(map);
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH).map(map);
     await prisma.$transaction(async (tx) => {
       await tx[model].createMany({ data: chunk });
     });

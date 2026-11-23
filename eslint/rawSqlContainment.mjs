@@ -30,9 +30,6 @@ export const RAW_SQL_CONTAINMENT = [
   "lib/engine/runtime/locks/processLock.ts",
   // `pg_locks` catalog read — cross-process lock visibility for the health route.
   "lib/engine/runtime/locks/utils/writerLockStatus.ts",
-  // Staleness window (`updated_at > now() - make_interval(…)` in mergeInFlight)
-  // — interval arithmetic on the DB-server clock.
-  "lib/engine/runtime/reconcile/runningHandler.ts",
   // `latestRunLeaseState`: `lease_until > now()` compared on the DB clock in
   // the SELECT projection — a cross-server-clock race decision.
   "lib/engine/runtime/reconcile/recoveryDriver.ts",

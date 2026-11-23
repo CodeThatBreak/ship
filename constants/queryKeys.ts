@@ -40,7 +40,7 @@ export const queryKeys = {
    *  — one GET /api/node-templates back both sections */
   templatesCatalog: (templateId: string) =>
     ["templates", "catalog", templateId] as const,
-  /** the gallery list (GET /api/templates — the fan-out child picker) */
+  /** the gallery list (GET /api/templates) */
   templatesGallery: ["templates", "gallery"] as const,
   /** one node instance's resolved contract — the request URL is the identity
    *  (def/kind + the instance config, per /api/contracts) */

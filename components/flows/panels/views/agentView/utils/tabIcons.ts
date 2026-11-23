@@ -6,7 +6,6 @@ import {
   SquareText,
   FileText,
   Gauge,
-  ListOrdered,
   ListTodo,
   MessageSquareCheck,
   ScrollText,
@@ -22,7 +21,6 @@ const FALLBACK_TAB_ICON: LucideIcon = FileText;
 /** One icon per tab value: the fixed tabs plus every known artifact kind. */
 const TAB_ICONS: Record<string, LucideIcon> = {
   [AGENT_VIEW_TAB.OUTPUT]: SquareText,
-  [AGENT_VIEW_TAB.STEPS]: ListOrdered,
   [ARTIFACT_KIND.MARKDOWN]: FileText,
   [ARTIFACT_KIND.JSON]: Braces,
   [ARTIFACT_KIND.DIFF]: FileDiff,

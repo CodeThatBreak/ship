@@ -1,12 +1,11 @@
 /**
  * BuildTriggerPlanner — the engine-trigger materialization carved out of the
- * build def (§T6/§12): split-child unit consumption, the approved-plan read,
- * and the multi-branch sequential decomposition (branch rows first, topo
- * order, plan-run model carried through).
+ * build def (§T6/§12): the approved-plan read and the multi-branch sequential
+ * decomposition (branch rows first, topo order, plan-run model carried
+ * through).
  *
  * The invariants under test: a corrupt plan meta is a typed failure (step
- * 05), the plan model comes from the PLAN node's validated output contract,
- * and a split child's unit payload rides straight into the run input.
+ * 05) and the plan model comes from the PLAN node's validated output contract.
  */
 import { testAll, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -53,39 +52,13 @@ async function seed(index: number, opts: { planContent?: string; planMeta?: unkn
     await nodeSupport.setNode(planNodeId, { output: JSON.stringify(opts.planOutput) });
   }
   const ctx = {
-    flow: { id: flowId, taskId, name: `planner ${index}`, status: "active", executionMode: "cloud", mrBranch: null, parentFlowId: null, triggerPayload: null, createdAt: now(), updatedAt: now() },
+    flow: { id: flowId, taskId, name: `planner ${index}`, status: "active", executionMode: "cloud", mrBranch: null, triggerPayload: null, createdAt: now(), updatedAt: now() },
     task: { id: taskId, type: "generic", key: `TST-${index}`, summary: "test", fields: {}, status: "open", issueType: "story", priority: "P2" },
   } as unknown as FlowCtx;
   return { flowId, ctx };
 }
 
-const withPayload = (ctx: FlowCtx, payload: unknown): FlowCtx =>
-  ({ ...ctx, flow: { ...ctx.flow, triggerPayload: payload } }) as FlowCtx;
-
 const branchInput = (run: { input: { branchInfo: { name: string } | null } }) => run.input.branchInfo?.name ?? null;
-
-describe("BuildTriggerPlanner — split-child consumption (§2.4 Phase 6)", () => {
-  it("triggerInput maps the unit payload into the run input; null on an ordinary parent-flow build", async () => {
-    const planner = new BuildTriggerPlanner(nodeSupport);
-    const s = await seed(51);
-    const unit = { unit: { item: { name: "feat-auth", title: "Auth branch", scope: "src/auth", plan: "# Branch plan" } } };
-    expect(planner.triggerInput(withPayload(s.ctx, unit))).toEqual({
-      plan: "# Branch plan",
-      prompt: null,
-      promptIsBody: false,
-      branchInfo: { name: "feat-auth", title: "Auth branch", scope: "src/auth" },
-      feedback: null,
-      model: null,
-    });
-    expect(planner.triggerInput(s.ctx)).toBeNull();
-  });
-
-  it("a PRESENT-but-malformed unit throws — fail loud, never the wrong build", async () => {
-    const planner = new BuildTriggerPlanner(nodeSupport);
-    const s = await seed(52);
-    expect(() => planner.triggerInput(withPayload(s.ctx, { unit: { item: { name: "x" } } }))).toThrow();
-  });
-});
 
 describe("BuildTriggerPlanner — triggerRuns", () => {
   it("single-branch fast path: the approved plan content + the plan run's validated model", async () => {

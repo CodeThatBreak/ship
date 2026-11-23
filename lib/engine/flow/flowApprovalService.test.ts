@@ -11,9 +11,8 @@ const { NODE_STATUS } = await import("../constants/nodeStatus");
 
 /**
  * FlowApprovalService — the approval paths' own contract (step-02 carve-out):
- * the execution-override chip, the declared `approve` transition (whose
- * from-set is the step-06 duplicate fence), the shared release-downstream
- * block, and the guard rejections. The end-to-end approve flows are covered
+ * the declared `approve` transition (whose from-set is the step-06 duplicate
+ * fence), the shared release-downstream block, and the guard rejections. The end-to-end approve flows are covered
  * by the engine tests (sdlcHappyPath, stepFlowManager's approveChildStep,
  * flowEngine's guard tests).
  */
@@ -50,7 +49,6 @@ const makeHost = (over: Partial<ApprovalHost> = {}): ApprovalHost => ({
   defOf: async () => ({ builtinApproval: false, capabilities: {} }) as never,
   graph: async () => null,
   ctx: async () => { throw new Error("not used"); },
-  isStepChild: async () => false,
   latestResourceArtifact: async () => undefined,
   transitionTrigger: async () => ({ started: true }) as TriggerResult,
   chain: { approveBuild: async () => ({ started: true }) as TriggerResult },
@@ -126,29 +124,6 @@ describe("FlowApprovalService", () => {
     // the release block ran inside bg — drive it manually (fire-and-forget)
     if (captured.fn) await captured.fn();
     expect(released).toEqual(["plan"]);
-  });
-
-  it("approvePlan records the execution override in the plan meta when it differs", async () => {
-    const flowId = "flw_ap_3";
-    const events: string[] = [];
-    await seedNode(flowId, "plan", NODE_STATUS.AWAITING_APPROVAL);
-    await seedPlanArtifact(flowId, "art_ov_1", { execution: "whole", executionSource: "planner" });
-    const service = new FlowApprovalService(makeHost({
-      latestResourceArtifact: async () =>
-        (await db.prisma.artifact.findUnique({
-          where: { id: "art_ov_1" },
-          select: { id: true, content: true, meta: true },
-        })) as never,
-      emitLifecycle: async (_flowId, _nodeKey, message) => {
-        events.push(message);
-      },
-    }));
-    await service.approvePlan(flowId, "steps");
-    const meta = await db.prisma.artifact.findUnique({ where: { id: "art_ov_1" }, select: { meta: true } });
-    const parsed = typeof meta?.meta === "string" ? JSON.parse(meta.meta) : meta?.meta;
-    expect(parsed).toMatchObject({ execution: "steps", executionSource: "override" });
-    expect(parsed.execution_rationale).toBeUndefined();
-    expect(events.some((m) => m.includes("plan execution overridden at approve"))).toBe(true);
   });
 
   it("approveNode rejects a built-in approval surface", async () => {

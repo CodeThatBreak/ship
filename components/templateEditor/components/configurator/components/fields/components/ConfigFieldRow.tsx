@@ -3,8 +3,8 @@
  * The schema-driven config field row (Phase 2 → 6): one `ConfigFieldRow`
  * per knob, dispatched through the field-renderer registry on the field
  * type — TS-lite schema boxes, decision branch choices, pass-down variable
- * maps, the http secrets chips, the fan-out child picker, and the plain
- * string/number/boolean/select controls.
+ * maps, the http secrets chips, and the plain string/number/boolean/select
+ * controls.
  *
  * Extracted from NodeConfigurator so any host surface can render a kind's
  * full definition form: the builder drawer's Config tab and the Template

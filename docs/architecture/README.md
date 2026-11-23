@@ -1,6 +1,8 @@
 # Architecture documentation
 
-This folder holds **current-state** architecture for builtin and declarative nodes: how the UI and engine work today, not migration plans or legacy behavior. Completed plans and one-off migration specs were removed from the tree; see [`docs/archive/`](../archive/README.md) for context.
+This folder holds **current-state** architecture for builtin and declarative nodes: how the UI and engine work today, not migration plans or legacy behavior.
+
+> Note: `docs/archive/README.md` (previously linked here), plus the paths referenced from `AGENTS.md` — `docs/engine-overhaul/target-architecture.md`, `docs/orm-migration/README.md` and `docs/review-tasks/` — do not exist in this checkout. Flagged, not created.
 
 When you add or change a node’s behavior, update its architecture doc in the same PR when the change is user-visible or crosses the API boundary.
 
@@ -19,7 +21,7 @@ A short YAML block at the top:
 ```yaml
 ---
 node_key: plan          # engine NODE_KEYS / node.type for builtins
-kind: builtin           # builtin | declarative | child
+kind: builtin           # builtin | declarative
 status: current         # current | draft (not yet shipped)
 owner: engine+flows     # team or area (free text)
 last_reviewed: 2026-10-30
@@ -92,19 +94,15 @@ Explicitly state actions this node **does not** use (helps avoid resurrecting le
 - Response JSON schemas (run vs chat turn vs scoped refine if different)
 - Retry / refusal semantics (bounded retry, state guards)
 
-### 10. Fan-out and downstream (optional)
-
-Only if the node publishes split units, child flows, or execution resolution. Describe knob + meta precedence; name the consumer node (`build`, etc.).
-
-### 11. Provenance and review UI (optional)
+### 10. Provenance and review UI (optional)
 
 How the panel shows diffs, version labels, and meta (`refinedFrom`, `scopedRefine`, etc.).
 
-### 12. Out of scope
+### 11. Out of scope
 
-What this doc **intentionally excludes** (legacy flows, unrelated subsystems, future work tracked elsewhere).
+What this doc **intentionally excludes** (unrelated subsystems, future work tracked elsewhere).
 
-### 13. Related code index
+### 12. Related code index
 
 Compact table: **Concern → primary file(s)** for navigation.
 
@@ -124,9 +122,9 @@ Compact table: **Concern → primary file(s)** for navigation.
 | Doc | Topic |
 |-----|--------|
 | [start-node.md](./start-node.md) | Start — flow entry, task intake, handoff to plan |
-| [plan-node.md](./plan-node.md) | Plan — implementation plan, conversational refine, branch split source |
+| [plan-node.md](./plan-node.md) | Plan — implementation plan, conversational refine, branch-scoped refine |
 | [plan-unified-turns.md](./plan-unified-turns.md) | Plan chat / unified turns (current behavior) |
-| [build-node.md](./build-node.md) | Build — coding agent runs, diff approval, fan-out + merge-back runtime |
+| [build-node.md](./build-node.md) | Build — coding agent runs, diff approval, multi-branch builds |
 | [pipeline-node.md](./pipeline-node.md) | Pipeline — CI gate, bounded fix agent, manual re-check |
 | [review-node.md](./review-node.md) | Review — AI review of the MR diff, comment posting, thread inbox |
 | [resolve-node.md](./resolve-node.md) | Resolve — debounced comment fixes, thread closing, review loop |

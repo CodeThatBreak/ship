@@ -10,12 +10,8 @@ import "server-only";
  * loop that owns a running node — the agent stream heartbeat, the pipeline
  * gate's wait loop, the worktree-ensure path — re-extends the lease at least
  * every {@link NODE_LEASE_HEARTBEAT_MS}, so the budget tolerates several
- * missed heartbeats before the reconciler may recover the node.
- *
- * Orchestration waits that legitimately outlive any loop (fan-out/split
- * aggregates parked while child flows run) do NOT heartbeat: the reconciler
- * treats durable evidence — active child flows, in-flight `step_merges` — as
- * liveness for those (see `runtime/reconcile/runningHandler.ts`).
+ * missed heartbeats before the reconciler may recover the node. Liveness is
+ * always lease + persisted run state — never in-process handles.
  */
 export const NODE_LEASE_SECONDS = 180;
 

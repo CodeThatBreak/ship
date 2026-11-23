@@ -9,9 +9,8 @@ import "server-only";
  *  - `schedule_fire` — the poller's template-schedule sweep enqueues; the
  *    handler fires and advances `schedule_next_at` in the same transaction as
  *    the job's completion
- *  - `wait_fire` / `merge_back` — declared vocabulary; the durable wait sweep
- *    (step 03) claims and fires waits directly through the WaitStore instead,
- *    and merge-backs become jobs with the step-07 coordinator
+ *  - `wait_fire` — the durable wait sweep (step 03) claims and fires waits
+ *    directly through the WaitStore instead of enqueueing jobs
  *  - `cancel` — the cancel-intent journal (step 06 task 4): written ahead of
  *    the remote cancel + finalize; the worker sweep's re-claim completes an
  *    interrupted cancel exactly as the inline path would
@@ -23,7 +22,6 @@ export const JOB_KIND = {
   WEBHOOK_DELIVERY: "webhook_delivery",
   SCHEDULE_FIRE: "schedule_fire",
   WAIT_FIRE: "wait_fire",
-  MERGE_BACK: "merge_back",
   CANCEL: "cancel",
   MR_CREATE: "mr_create",
 } as const;

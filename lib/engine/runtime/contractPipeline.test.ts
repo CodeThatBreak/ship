@@ -9,7 +9,6 @@ import type { RecoveryResult } from "../nodes/shared/types/recovery";
 import { ContractPipeline } from "./contractPipeline";
 import { InputContractError } from "../errors/inputContractError";
 import { OutputContractError } from "../errors/outputContractError";
-import { DEFAULT_SPLIT_OUTPUT } from "../nodes/shared/schemas/defaultOutputs";
 import { NODE_STATUS } from "../constants/nodeStatus";
 
 /** A minimal concrete def: schemas injected per scenario, nothing runs. */
@@ -142,37 +141,5 @@ describe("validateTerminalOutput — status-aware terminal writes", () => {
   it("failed/skipped writes are exempt — the violation itself failed the node", () => {
     expect(() => contracts.validateTerminalOutput(def, NODE_STATUS.FAILED, {})).not.toThrow();
     expect(() => contracts.validateTerminalOutput(def, NODE_STATUS.SKIPPED, {})).not.toThrow();
-  });
-});
-
-describe("validateAggregateOutput — the fan-out/split seam", () => {
-  const def = new StubDef("build", z.object({}));
-
-  it("accepts a conforming split aggregate (extra native fields tolerated)", () => {
-    expect(() =>
-      contracts.validateAggregateOutput("splitOutcome", def, {
-        branch: "x",
-        units: [{ key: "u1", title: "U", status: "done" }],
-      }),
-    ).not.toThrow();
-  });
-
-  it("refuses a malformed split aggregate", () => {
-    try {
-      contracts.validateAggregateOutput("splitOutcome", def, {
-        units: [{ key: "u1", title: "U", status: 12345 }],
-      });
-      expect.unreachable("validateAggregateOutput should have thrown");
-    } catch (e: unknown) {
-      expect(e).toBeInstanceOf(OutputContractError);
-    }
-  });
-
-  it("uses the def's narrowed capability contract when declared", () => {
-    const narrowed = new StubDef("build", z.object({}));
-    narrowed.capabilities.splitOutput = DEFAULT_SPLIT_OUTPUT.extend({
-      units: z.array(z.object({ key: z.string(), title: z.string(), status: z.string(), output: z.unknown().optional() })).min(1),
-    });
-    expect(() => contracts.validateAggregateOutput("splitOutcome", narrowed, { units: [] })).toThrow(OutputContractError);
   });
 });

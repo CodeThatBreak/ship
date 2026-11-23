@@ -22,8 +22,7 @@ const { AgentDefSchema } = await import("../../schemas/declarativeSchemas");
 
 const SCHEMA = { type: "object", properties: { cost: { type: "integer" } }, required: ["cost"] };
 
-const jsonDef = (split?: Record<string, unknown>) =>
-  AgentDefSchema.parse({ output: "json", output_schema: SCHEMA, ...(split ? { split } : {}) });
+const jsonDef = () => AgentDefSchema.parse({ output: "json", output_schema: SCHEMA });
 const markdownDef = () => AgentDefSchema.parse({});
 const schemalessJsonDef = () => AgentDefSchema.parse({ output: "json", output_schema: null });
 
@@ -52,16 +51,6 @@ describe("composeAgentPrompt", () => {
     expect(composed).not.toContain("It must satisfy this JSON Schema");
   });
 
-  it("the split directive is appended after the contract directive, only when split is set", () => {
-    const outputSchema = z.record(z.string(), z.unknown());
-    const withSplit = composeAgentPrompt("List the services", jsonDef({ field: "services" }), outputSchema);
-    const contractAt = withSplit.indexOf("RESPONSE FORMAT");
-    const splitAt = withSplit.indexOf("UNIT OUTPUT");
-    expect(contractAt).toBeGreaterThanOrEqual(0);
-    expect(splitAt).toBeGreaterThan(contractAt);
-
-    expect(composeAgentPrompt("List the services", jsonDef(), outputSchema)).not.toContain("UNIT OUTPUT");
-  });
 });
 
 describe("agentContractDirective", () => {

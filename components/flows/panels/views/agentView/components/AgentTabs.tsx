@@ -3,33 +3,29 @@
 import { Sparkles } from 'lucide-react';
 import { EmptyHint } from '@/components/shared/EmptyHint';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { FlowData, Node } from '@/types/flow';
+import type { Node } from '@/types/flow';
 import { AGENT_VIEW_TAB, TABS_LIST_CLASS } from '../constants/tabs';
 import type { AgentViewModel } from '../hooks/useAgentView';
 import { kindTabLabel } from '../utils/tabLabels';
 import { tabIcon } from '../utils/tabIcons';
-import FanoutStepList from '../../../FanoutStepList';
 import { GenericArtifact } from '../../../shared';
 import { rendererForKind } from '../../../artifacts/artifactRenderers';
 import type { ActionPayload } from '../../../context';
 import AgentOutput from './AgentOutput';
 
-/** The single line-variant tab strip: output, optional fan-out steps, then one
- *  tab per other artifact kind the node actually carries — no vertical stack. */
+/** The single line-variant tab strip: output, then one tab per other artifact
+ *  kind the node actually carries — no vertical stack. */
 export default function AgentTabs({
-  flow,
   node,
   action,
   model,
 }: {
-  flow: FlowData;
   node: Node;
   action: (a: string, b?: ActionPayload) => void;
   model: AgentViewModel;
 }) {
   const emptyOutput = model.showEmptyOutput ? <EmptyHint icon={Sparkles}>No output yet.</EmptyHint> : null;
   const OutputIcon = tabIcon(AGENT_VIEW_TAB.OUTPUT);
-  const StepsIcon = tabIcon(AGENT_VIEW_TAB.STEPS);
 
   if (!model.hasTabs) return emptyOutput;
 
@@ -41,12 +37,6 @@ export default function AgentTabs({
             <OutputIcon />
             Output
           </TabsTrigger>
-          {model.fannedOut && (
-            <TabsTrigger value={AGENT_VIEW_TAB.STEPS}>
-              <StepsIcon />
-              Steps
-            </TabsTrigger>
-          )}
           {model.otherKinds.map(kind => {
             const KindIcon = tabIcon(kind);
             return (
@@ -57,12 +47,6 @@ export default function AgentTabs({
             );
           })}
         </TabsList>
-      )}
-      {/* plan fan-out: the per-step monitoring surface is one of the tabs */}
-      {model.fannedOut && (
-        <TabsContent value={AGENT_VIEW_TAB.STEPS} className="pt-4">
-          <FanoutStepList flow={flow} node={node} />
-        </TabsContent>
       )}
       <TabsContent value={AGENT_VIEW_TAB.OUTPUT} className="pt-4">
         {model.current ? (

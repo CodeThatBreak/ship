@@ -13,12 +13,6 @@ const ADVANCED_KEYS = [
   "agent_tools",
   "secret_refs",
   "mcp_sources",
-  "fanout_mode",
-  "fanout_child",
-  "fanout_parallel_max",
-  "split_consume",
-  "split_parallel_max",
-  "split",
 ];
 const CORE_KEYS = [
   "mode",

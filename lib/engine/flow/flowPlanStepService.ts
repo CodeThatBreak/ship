@@ -3,7 +3,6 @@ import "server-only";
 import { db } from "../../db/app";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { NODE_STATUS } from "../constants/nodeStatus";
-import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { planSteps } from "../runtime/planStepStore";
 import type { PlanStepInput } from "../runtime/planStepStore/types/planStep";
 import type { FlowPlanStepHost } from "./types/flowPlanStepHost";
@@ -15,10 +14,8 @@ import type { FlowPlanStepHost } from "./types/flowPlanStepHost";
  * and toggling one step's status.
  *
  * Must never: edit steps while a run is in flight (the in-flight guard reads
- * node statuses — Q5: `current_node` is gone), remove a step whose child
- * sub-flow already started or merged (loud refusal — the editor's harmless
- * row edits keep their rows and their pending children), or write node
- * status (the plan node's status belongs to the transition authority).
+ * node statuses — Q5: `current_node` is gone), or write node status (the plan
+ * node's status belongs to the transition authority).
  */
 export class FlowPlanStepService {
   constructor(private readonly host: FlowPlanStepHost) {}
@@ -33,20 +30,15 @@ export class FlowPlanStepService {
     return this.host.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN);
   }
 
-  /** Bulk-replace the checklist from the Plan view editor.
-   *  Phase 3B softened fan-out guards: the editor sends each row's plan-step
-   *  row id (PlanSteps payload), so a harmless title/detail/files edit keeps
-   *  the row — and its pending child sub-flow's linkage — instead of being
-   *  read as a remove + re-add (the old title-match-only guard errored loudly
-   *  on renames and destroyed pending children). Rows that are actually
-   *  removed still hit the guards: a pending child's flow closes silently, a
-   *  started/merged child's step refuses loudly. */
+  /** Bulk-replace the checklist from the Plan view editor. The editor sends
+   *  each row's plan-step row id (PlanSteps payload), so a harmless
+   *  title/detail/files edit keeps its row instead of being read as a
+   *  remove + re-add. */
   async updatePlanSteps(flowId: string, input: PlanStepInput[]): Promise<void> {
     if (!Array.isArray(input) || input.some(s => !s?.title?.trim?.())) {
       throw new Error('steps must be an array of {title, detail?, files?}');
     }
     const latestPlan = await this.assertPlanEditable(flowId);
-    const guards = await stepFlows.deletableStepIds(flowId);
     const existing = await planSteps.list(flowId);
     const byId = new Map(existing.map(s => [s.id, s]));
     const claimed = new Set<string>(); // existing rows matched to a kept input row
@@ -58,20 +50,6 @@ export class FlowPlanStepService {
         claimed.add(m.id);
         matched.set(i, m.id);
       }
-    }
-    // rows the user removed: a started/merged child's step cannot go (loud);
-    // rows matched above are by definition kept — never treated as removed
-    const removedIds = existing.filter(s => !claimed.has(s.id) && !guards.deletable.has(s.id));
-    if (removedIds.length) {
-      throw new Error(
-        `plan step "${removedIds[0].title}" has an active or merged sub-flow and can't be removed — skip the step instead`
-      );
-    }
-    for (const [stepId, childId] of guards.toCancel) {
-      // a step the user REMOVED whose child never started — close the child so
-      // no half-scheduled sub-flow lingers (kept rows cancel nothing)
-      if (claimed.has(stepId)) continue;
-      await stepFlows.cancelUnstartedChild(childId);
     }
     const updated = await planSteps.replace(
       flowId,
