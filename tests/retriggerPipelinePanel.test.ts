@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import PipelineView from "@/components/flows/panels/views/PipelineView";
+import PipelineView from "@/components/flows/panels/views/components/PipelineView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { FLOW_STATUS } from "@/constants/flow";
 import type { FlowData, Node } from "@/types/flow";

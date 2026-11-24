@@ -16,8 +16,8 @@ import {
 } from "@/components/flows/panels/artifacts/artifactRenderers";
 import { ARTIFACT_META } from "@/components/flows/panels/artifacts/constants/artifactMeta";
 import type { ArtifactPayload } from "@/components/flows/panels/artifacts/types/artifactPayload";
-import { GenericDeclarativePanel } from "@/components/flows/panels/genericDeclarativePanel";
-import PipelineView from "@/components/flows/panels/views/PipelineView";
+import { GenericDeclarativePanel } from "@/components/flows/panels/components/node/GenericDeclarativePanel";
+import PipelineView from "@/components/flows/panels/views/components/PipelineView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { resolveNodePanel } from "@/components/flows/panels/panelFactory";
 import { FLOW_STATUS } from "@/constants/flow";

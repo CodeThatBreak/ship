@@ -1,6 +1,5 @@
 "use client";
 import type { ReactNode } from "react";
-import { ListChecks, Wrench } from "lucide-react";
 import { FLOW_ACTION } from "@/constants/flow";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +7,8 @@ import { Button } from "@/components/ui/button";
 import { PIPELINE_STATUS, pipelineStatusVariant } from "../constants/pipelineStatus";
 import type { PanelActionFn } from "../types/artifactRenderer";
 import type { PipelineFixRunView, PipelineJobView } from "../utils/pipelinePayload";
-
-const PIPELINE_LIST_CARD = "rounded-lg border border-border bg-background p-3.5 mb-3.5";
-const PIPELINE_LIST_HEADER = "flex items-center gap-1.5 mb-2 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]";
+import { PipelineJobList } from "./PipelineJobList";
+import { PipelineFixRunList } from "./PipelineFixRunList";
 
 /** The pipeline gate's status/progress UI (task 18): the green banner and
  *  fix-run history promoted verbatim out of the built-in `PipelineView`
@@ -84,45 +82,4 @@ export const PipelineStatusBody = ({
       </Button>
     )}
   </>
-);
-
-/** The watched pipeline's jobs: name, manual-play marker, status badge. */
-const PipelineJobList = ({ jobs }: { jobs: readonly PipelineJobView[] }) => (
-  <div className={PIPELINE_LIST_CARD}>
-    <div className={PIPELINE_LIST_HEADER}>
-      <ListChecks size={12} /> Jobs
-    </div>
-    <ul className="m-0 p-0 list-none text-[12.5px]">
-      {jobs.map((job) => (
-        <li key={job.id} className="flex items-center gap-2 py-1">
-          <span className="flex-1 truncate">{job.name}</span>
-          {job.manual && <Badge variant="outline">manual</Badge>}
-          <Badge
-            className={pipelineStatusVariant(job.status)}
-            variant={job.status === PIPELINE_STATUS.FAILED ? "destructive" : undefined}
-          >
-            <span className="size-1.5 rounded-full bg-current" />
-            {job.status}
-          </Badge>
-        </li>
-      ))}
-    </ul>
-  </div>
-);
-
-/** The fix-run ledger: one row per agent fix attempt the gate spent. */
-const PipelineFixRunList = ({ runs }: { runs: readonly PipelineFixRunView[] }) => (
-  <div className={PIPELINE_LIST_CARD}>
-    <div className={PIPELINE_LIST_HEADER}>
-      <Wrench size={12} /> Fix runs
-    </div>
-    <ol className="m-0 p-0 list-none text-[12.5px]">
-      {runs.map((run) => (
-        <li key={run.attempt} className="py-1">
-          <span className="font-mono text-muted-foreground">#{run.attempt}</span>{" "}
-          <span className="text-foreground/85">{run.summary}</span>
-        </li>
-      ))}
-    </ol>
-  </div>
 );

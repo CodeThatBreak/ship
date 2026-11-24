@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import AgentView from "@/components/flows/panels/views/agentView/AgentView";
+import AgentView from "@/components/flows/panels/views/components/agentView/AgentView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { FLOW_STATUS } from "@/constants/flow";
 import type { Artifact, BranchRow, FlowData, Node } from "@/types/flow";

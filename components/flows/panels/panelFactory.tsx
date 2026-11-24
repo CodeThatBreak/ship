@@ -3,16 +3,16 @@ import type { ComponentType } from 'react';
 import type { Node } from '@/types/flow';
 import PlanNodeChat from '../components/plan/PlanNodeChat';
 import PlanView from '../components/plan/PlanView';
-import AgentView from './views/agentView/AgentView';
-import BuildView from './views/BuildView';
-import DeclarativeView from './views/DeclarativeView';
-import { GenericDeclarativePanel } from './genericDeclarativePanel';
-import NodeChat from './NodeChat';
+import AgentView from './views/components/agentView/AgentView';
+import BuildView from './views/components/BuildView';
+import DeclarativeView from './views/components/DeclarativeView';
+import { GenericDeclarativePanel } from './components/node/GenericDeclarativePanel';
+import NodeChat from './components/node/NodeChat';
 import { isAgenticNode } from './utils/isAgenticNode';
-import PipelineView from './views/PipelineView';
-import ResolveView from './views/ResolveView';
-import ReviewView from './views/ReviewView';
-import StartView from './views/StartView';
+import PipelineView from './views/components/PipelineView';
+import ResolveView from './views/components/ResolveView';
+import ReviewView from './views/components/ReviewView';
+import StartView from './views/components/StartView';
 
 /**
  * The node workspace factory (§3.1's registry, resolved explicitly): a

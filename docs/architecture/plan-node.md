@@ -80,7 +80,7 @@ flowchart LR
 
 ### Workspace routing
 
-`components/flows/panels/panel-factory.tsx`:
+`components/flows/panels/panelFactory.tsx`:
 
 - Panel: `node.type === 'plan'` → **`PlanView`**
 - Chat: `capabilities.refinable && capabilities.chatMode === 'plan'` → **`PlanNodeChat`**

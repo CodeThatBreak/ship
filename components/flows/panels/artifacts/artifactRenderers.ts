@@ -1,16 +1,16 @@
 import { ARTIFACT_KIND } from "./constants/artifactKinds";
-import { DiffView } from "./DiffView";
-import { FailedOutputView } from "./FailedOutputView";
-import { GenericArtifactFallback } from "./GenericArtifactFallback";
-import { JsonArtifact } from "./JsonArtifact";
-import { MarkdownArtifact } from "./MarkdownArtifact";
-import { PipelineStatusView } from "./PipelineStatusView";
-import { PlanArtifactView } from "./PlanArtifactView";
-import { ResolveArtifactView } from "./ResolveArtifactView";
-import { ReviewArtifactView } from "./ReviewArtifactView";
-import { TranscriptView } from "./TranscriptView";
-import { UsageView } from "./UsageView";
-import { withDryRunBadge } from "./DryRunArtifactBadge";
+import { DiffView } from "./components/DiffView";
+import { FailedOutputView } from "./components/FailedOutputView";
+import { GenericArtifactFallback } from "./components/GenericArtifactFallback";
+import { JsonArtifact } from "./components/JsonArtifact";
+import { MarkdownArtifact } from "./components/MarkdownArtifact";
+import { PipelineStatusView } from "./components/PipelineStatusView";
+import { PlanArtifactView } from "./components/PlanArtifactView";
+import { ResolveArtifactView } from "./components/ResolveArtifactView";
+import { ReviewArtifactView } from "./components/ReviewArtifactView";
+import { TranscriptView } from "./components/TranscriptView";
+import { UsageView } from "./components/UsageView";
+import { withDryRunBadge } from "./utils/withDryRunBadge";
 import type { ArtifactRenderer } from "./types/artifactRenderer";
 
 /**

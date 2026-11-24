@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { resolveCockpitSelectedKey, runningNodeKeysOf } from './utils/resolveCockpitSelection';
 import { useQueryClient } from '@tanstack/react-query';
 import WorkflowGraph from '../workflowGraph/WorkflowGraph';
-import NodePanel from '../panels/NodePanel';
+import NodePanel from '../panels/components/node/NodePanel';
 import FlowHeader from '../components/FlowHeader';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/constants/queryKeys';

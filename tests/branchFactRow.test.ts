@@ -11,8 +11,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import { BranchFactRow } from "@/components/shared/BranchFactRow";
-import { GenericDeclarativePanel } from "@/components/flows/panels/genericDeclarativePanel";
-import BuildView from "@/components/flows/panels/views/BuildView";
+import { GenericDeclarativePanel } from "@/components/flows/panels/components/node/GenericDeclarativePanel";
+import BuildView from "@/components/flows/panels/views/components/BuildView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import type { BranchRow, FlowData, Node } from "@/types/flow";
 

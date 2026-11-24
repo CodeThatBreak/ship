@@ -3,7 +3,7 @@ import { Layers, RotateCcw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useArtifact } from '../../../../hooks/useArtifact';
-import { PlanArtifactView } from '../../../../panels/artifacts/PlanArtifactView';
+import { PlanArtifactView } from '../../../../panels/artifacts/components/PlanArtifactView';
 import { MasterPlanLoader } from './MasterPlanLoader';
 
 /** The section's heading — hoisted, shared by the loading/error/success rows. */

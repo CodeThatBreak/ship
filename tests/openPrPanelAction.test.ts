@@ -14,7 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import { GenericDeclarativePanel } from "@/components/flows/panels/genericDeclarativePanel";
+import { GenericDeclarativePanel } from "@/components/flows/panels/components/node/GenericDeclarativePanel";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { FLOW_STATUS } from "@/constants/flow";
 import type { BranchRow, FlowData, Node } from "@/types/flow";

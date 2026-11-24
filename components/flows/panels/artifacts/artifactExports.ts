@@ -1,4 +1,4 @@
 export type { ArtifactPayload } from "./types/artifactPayload";
-export { GenericArtifact } from "./GenericArtifact";
-export { VersionTabs } from "./VersionTabs";
-export { ArtifactLoader } from "./ArtifactLoader";
+export { GenericArtifact } from "./components/GenericArtifact";
+export { VersionTabs } from "./components/VersionTabs";
+export { ArtifactLoader } from "./components/ArtifactLoader";

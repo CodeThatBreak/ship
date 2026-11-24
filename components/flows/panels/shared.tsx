@@ -5,7 +5,8 @@
  * artifact views. This module stays the import point for the panels (and every
  * panel feature imports from here — §2.3 barrels).
  */
-export { panelTitle, statusVariant, PanelShell } from "./PanelShell";
-export { CostChip } from "./CostChip";
+export { PanelShell } from "./components/shell/PanelShell";
+export { panelTitle } from "./utils/panelTitle";
+export { CostChip } from "./components/shell/CostChip";
 export { GenericArtifact, VersionTabs, ArtifactLoader } from "./artifacts/artifactExports";
 export type { ArtifactPayload } from "./artifacts/artifactExports";

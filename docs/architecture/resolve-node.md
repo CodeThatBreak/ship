@@ -93,10 +93,10 @@ Generic `NodeChat` → `ChatPanel`; sends go to `POST /api/flows/:id/chat` and r
 
 ### Key files
 
-- `components/flows/panels/views/ResolveView.tsx`
+- `components/flows/panels/views/components/ResolveView.tsx`
 - `components/flows/panels/utils/resolveClockLabel.ts`
 - `components/flows/panels/shared.tsx` (`PanelShell`, `GenericArtifact`)
-- `components/flows/panels/NodeChat.tsx`, `components/chat/promptModal/PromptModal.tsx`
+- `components/flows/panels/components/node/NodeChat.tsx`, `components/chat/promptModal/PromptModal.tsx`
 
 ## Backend architecture
 
@@ -259,5 +259,5 @@ The loop edge is the downstream: seeded in `lib/db/templateSeeder.ts` as `resolv
 | Loop-edge condition + re-entry | `lib/db/templateSeeder.ts`, `lib/engine/runtime/staging/` (`ConditionEvaluator`, `LoopJoin`), `lib/engine/nodes/chains/sdlcEffects.ts` (`loopReentry`) |
 | Open/resolved comment rows | `lib/engine/nodes/shared/nodeSupport.ts` (`openComments`, `resolveComments`, `recordAgentReply`) |
 | Manual trigger | `lib/engine/nodes/chains/sdlcChain.ts` (`triggerResolve`) |
-| Panel | `components/flows/panels/views/ResolveView.tsx` |
+| Panel | `components/flows/panels/views/components/ResolveView.tsx` |
 | Queue clock | `components/flows/panels/utils/resolveClockLabel.ts` |

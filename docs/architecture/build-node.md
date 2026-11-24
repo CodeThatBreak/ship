@@ -78,8 +78,8 @@ Generic `NodeChat`: refine sends rerun the node with the message as `feedback`; 
 
 ### Key files
 
-- `components/flows/panels/views/BuildView.tsx`
-- `components/flows/panels/NodeChat.tsx`, `components/flows/panels/panelFactory.tsx`
+- `components/flows/panels/views/components/BuildView.tsx`
+- `components/flows/panels/components/node/NodeChat.tsx`, `components/flows/panels/panelFactory.tsx`
 - `components/flows/hooks/useWorktreeStatus.ts`
 
 ## Backend architecture
@@ -190,5 +190,5 @@ Whole build: free-form reply plus a terminal ` ```json build-progress ` block `{
 | Input/output + trigger payload schemas | `lib/engine/nodes/kinds/build/schema.ts` |
 | Branch rows | `lib/engine/nodes/kinds/build/branchStore.ts` |
 | MR-creation chain on approval | `lib/engine/nodes/chains/sdlcChain.ts` |
-| Panel / chat rail | `components/flows/panels/views/BuildView.tsx`, `panels/NodeChat.tsx` |
+| Panel / chat rail | `components/flows/panels/views/components/BuildView.tsx`, `panels/components/node/NodeChat.tsx` |
 | Worktree status route + hook | `app/api/flows/worktree-status/route.ts`, `components/flows/hooks/useWorktreeStatus.ts` |

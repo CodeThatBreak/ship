@@ -91,11 +91,11 @@ Generic `NodeChat` → `ChatPanel` bound to `node.node_key`; sends go to `POST /
 
 ### Key files
 
-- `components/flows/panels/views/ReviewView.tsx`
-- `components/flows/panels/review/buildThreads.ts` (+ `buildThreads.test.ts`)
-- `components/flows/panels/review/ThreadCard.tsx`, `NoteHeader.tsx`, `ThreadListSkeleton.tsx`
+- `components/flows/panels/views/components/ReviewView.tsx`
+- `components/flows/panels/review/utils/buildThreads.ts` (+ `buildThreads.test.ts`)
+- `components/flows/panels/review/components/ThreadCard.tsx`, `NoteHeader.tsx`, `ThreadListSkeleton.tsx`
 - `components/flows/hooks/useFlowComments.ts`
-- `components/flows/panels/NodeChat.tsx`, `components/chat/promptModal/PromptModal.tsx`
+- `components/flows/panels/components/node/NodeChat.tsx`, `components/chat/promptModal/PromptModal.tsx`
 
 ## Backend architecture
 
@@ -221,6 +221,6 @@ Validated by `reviewCommentItemSchema` (`file` / `line` optional, `body` non-emp
 | Comment persistence | `lib/engine/runtime/commentStore.ts` |
 | Comment read API | `lib/comments/commentService.ts`, `app/api/flows/[id]/comments/route.ts` |
 | Manual trigger | `lib/engine/nodes/chains/sdlcChain.ts` (`triggerReview`) |
-| Panel | `components/flows/panels/views/ReviewView.tsx` |
-| Thread grouping | `components/flows/panels/review/buildThreads.ts` |
+| Panel | `components/flows/panels/views/components/ReviewView.tsx` |
+| Thread grouping | `components/flows/panels/review/utils/buildThreads.ts` |
 | Comments polling hook | `components/flows/hooks/useFlowComments.ts` |

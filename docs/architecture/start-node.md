@@ -69,7 +69,7 @@ Engine-only:
 
 ### Key files
 
-- `components/flows/panels/views/StartView.tsx`
+- `components/flows/panels/views/components/StartView.tsx`
 - `components/flows/panels/panelFactory.tsx`
 - `components/templateEditor/components/configurator/components/contract/components/StartContractEditor.tsx`
 - `types/startContract.ts`
@@ -139,6 +139,6 @@ None — no artifacts, no agent runs, no worktrees.
 |---------|----------|
 | Node class | `lib/engine/nodes/kinds/start/startNode.ts` |
 | Contract schema/validation | `types/startContract.ts` |
-| Panel | `components/flows/panels/views/StartView.tsx` |
+| Panel | `components/flows/panels/views/components/StartView.tsx` |
 | Contract editor | `components/templateEditor/components/configurator/components/contract/components/StartContractEditor.tsx` |
 | Flow context variables | `lib/engine/context/flowVariables.ts` |

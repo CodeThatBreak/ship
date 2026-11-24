@@ -93,9 +93,9 @@ Generic `NodeChat`; sends go to `POST /api/flows/:id/chat` with `nodeKey`, landi
 
 ### Key files
 
-- `components/flows/panels/views/PipelineView.tsx`
+- `components/flows/panels/views/components/PipelineView.tsx`
 - `components/chat/promptModal/PromptModal.tsx` (+ `hooks/useFlowChat.ts` prompt fetching)
-- `components/flows/panels/NodeChat.tsx`, `components/flows/panels/panelFactory.tsx`
+- `components/flows/panels/components/node/NodeChat.tsx`, `components/flows/panels/panelFactory.tsx`
 
 ## Backend architecture
 
@@ -209,4 +209,4 @@ The fix agent's reply is stored verbatim as the `fix` artifact; there is no stru
 | Chain trigger + advance | `lib/engine/nodes/chains/sdlcChain.ts` (`triggerPipelineGate`) |
 | Poller / webhook gate triggers | `lib/engine/runtime/flowPoller.ts`, `lib/engine/runtime/commentIngestor.ts` |
 | Git host port | `lib/engine/ports/gitHost.ts` |
-| Panel / prompt modal / chat rail | `components/flows/panels/views/PipelineView.tsx`, `components/chat/promptModal/PromptModal.tsx`, `components/flows/panels/NodeChat.tsx` |
+| Panel / prompt modal / chat rail | `components/flows/panels/views/components/PipelineView.tsx`, `components/chat/promptModal/PromptModal.tsx`, `components/flows/panels/components/node/NodeChat.tsx` |
