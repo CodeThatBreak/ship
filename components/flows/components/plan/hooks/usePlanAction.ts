@@ -26,9 +26,7 @@ export function usePlanAction(flowId: string) {
         break;
       }
 
-      case ACTION_TYPES.SELECT_VERSION:
-      case ACTION_TYPES.TOGGLE_BRANCH:
-      case ACTION_TYPES.COLLAPSE_BRANCH: {
+      case ACTION_TYPES.SELECT_VERSION: {
         dispatch(action);
         break;
       }

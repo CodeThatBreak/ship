@@ -15,8 +15,6 @@ import { FLOW_STATUS } from "../../../../../../constants/flow";
 export const REFINED_FROM_SOURCE = {
   /** a conversational apply (PlanNode.chat → applyPlanVersion) */
   CHAT: "chat",
-  /** the branch-scoped sub-plan refine (PlanOutputContract.scopedOutcome) */
-  BRANCH: "branch",
   /** a run started with a prompt body that diverged from the plan template */
   START: "start",
 } as const;

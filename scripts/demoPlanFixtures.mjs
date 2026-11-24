@@ -2,8 +2,8 @@
  * Plan fixtures shared by the demo seed (DEMO-142) and its fixture test —
  * the authored turn-envelope shape the plan node publishes: clean plan
  * markdown plus the meta object `planStore.persistPlan` writes into
- * `artifacts.meta` (`{ feedback, steps, branches }` — only the fields a demo
- * story needs). No markdown plan-meta fence in the markdown: the parser never
+ * `artifacts.meta` (`{ feedback, steps }` — only the fields a demo story
+ * needs). No markdown plan-meta fence in the markdown: the parser never
  * reads the markdown, it reads the artifact's JSONB meta column.
  *
  * Plain data module (no imports, no side effects) so both the seeds and
@@ -11,13 +11,12 @@
  * themselves must never be imported (they run on import).
  */
 
-/** DEMO-142 plan v1 — first draft, 2 branches (backend, worker), 7 steps. */
+/** DEMO-142 plan v1 — first draft, 7 steps. */
 export const DEMO_FLOW_PLAN_V1 = {
   markdown: `# Webhook retry pipeline — implementation plan (v1)
 
 ## Approach
 Add a durable outbox table, a retry scheduler, and an admin replay endpoint.
-Split into two branches so backend and worker can merge independently.
 
 ## Files to create/change
 - \`db/migrations/014_webhook_events.sql\` — outbox table
@@ -48,7 +47,7 @@ Split into two branches so backend and worker can merge independently.
         detail:
           "Migration 014: id, payload, status, attempts, next_attempt_at, last_error, created/updated.",
         files: ["db/migrations/014_webhook_events.sql"],
-        branch: "backend",
+        branch: null,
       },
       {
         id: "s2",
@@ -56,14 +55,14 @@ Split into two branches so backend and worker can merge independently.
         detail:
           "persist() before delivery; transitions pending→delivered|retrying|dead with attempt counting.",
         files: ["lib/webhooks/outbox.ts"],
-        branch: "backend",
+        branch: null,
       },
       {
         id: "s3",
         title: "Exponential backoff schedule",
         detail: "1m/5m/30m/2h/6h with ±20% jitter; pure function, unit-testable.",
         files: ["lib/webhooks/backoff.ts"],
-        branch: "backend",
+        branch: null,
       },
       {
         id: "s4",
@@ -71,7 +70,7 @@ Split into two branches so backend and worker can merge independently.
         detail:
           "POST the payload, record attempt before delivery, classify 2xx vs retryable vs dead.",
         files: ["lib/webhooks/deliver.ts"],
-        branch: "backend",
+        branch: null,
       },
       {
         id: "s5",
@@ -79,63 +78,38 @@ Split into two branches so backend and worker can merge independently.
         detail:
           "Poll due events (status, next_attempt_at), deliver, reschedule or dead-letter. Crash-safe.",
         files: ["workers/webhook-retry.ts"],
-        branch: "worker",
+        branch: null,
       },
       {
         id: "s6",
         title: "Publish path via outbox",
         detail: "app/api/webhooks/route.ts writes to the outbox instead of firing directly.",
         files: ["app/api/webhooks/route.ts"],
-        branch: "backend",
+        branch: null,
       },
       {
         id: "s7",
         title: "Admin replay endpoint",
         detail: "POST /admin/webhooks/:id/replay resets a dead event to pending.",
         files: ["app/api/admin/webhooks/[id]/replay/route.ts"],
-        branch: "worker",
-      },
-    ],
-    branches: [
-      {
-        name: "backend",
-        title: "Outbox, backoff & delivery core",
-        scope: "Schema, outbox writer, backoff, delivery executor, publish-path rewiring",
-        files: [
-          "db/migrations/014_webhook_events.sql",
-          "lib/webhooks/outbox.ts",
-          "lib/webhooks/backoff.ts",
-          "lib/webhooks/deliver.ts",
-          "app/api/webhooks/route.ts",
-        ],
-        steps: ["s1", "s2", "s3", "s4", "s6"],
-        dependsOn: [],
-      },
-      {
-        name: "worker",
-        title: "Retry worker + admin replay",
-        scope: "Background retry loop and the admin replay endpoint",
-        files: ["workers/webhook-retry.ts", "app/api/admin/webhooks/[id]/replay/route.ts"],
-        steps: ["s5", "s7"],
-        dependsOn: ["backend"],
+        branch: null,
       },
     ],
   },
 };
 
 /**
- * DEMO-142 plan v2 — refined (single branch, s6 reworded → s9, s8 tests added).
- * `branches` is intentionally absent (a branchless plan) — the same shape
- * `persistPlan` writes for a plan the planner delivered without branches.
+ * DEMO-142 plan v2 — refined (s6 reworded → s9, s8 tests added).
+ * The same meta shape `persistPlan` writes for every plan.
  */
 export const DEMO_FLOW_PLAN_V2 = {
   markdown: `# Webhook retry pipeline — implementation plan (v2)
 
-> Refined from feedback: *"Single branch — the pieces are too coupled to split.
-> And the acceptance criteria require tests, add a step for them."*
+> Refined from feedback: *"The pieces are tightly coupled — keep them in one
+> cohesive change. And the acceptance criteria require tests, add a step."*
 
 ## Approach
-Same design as v1, delivered as one cohesive branch: durable outbox → backoff →
+Same design as v1, delivered as one cohesive change: durable outbox → backoff →
 delivery → worker → admin replay, with the test suite as a first-class step.
 
 ## Files to create/change
@@ -161,7 +135,7 @@ delivery → worker → admin replay, with the test suite as a first-class step.
   then succeeds → exactly-once delivery on attempt 5; replay of a dead event.
 `,
   meta: {
-    feedback: "single branch + tests step",
+    feedback: "cohesive change + tests step",
     steps: [
       {
         id: "s1",

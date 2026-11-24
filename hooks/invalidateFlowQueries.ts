@@ -19,6 +19,5 @@ export async function invalidateFlowPrompts(
     queryClient.invalidateQueries({ queryKey: queryKeys.flows.promptScope(flowId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.flows.prompts(flowId) }),
     queryClient.invalidateQueries({ queryKey: ["flows", "node-prompt", flowId] }),
-    queryClient.invalidateQueries({ queryKey: ["flows", "node-branch-prompt", flowId] }),
   ]);
 }

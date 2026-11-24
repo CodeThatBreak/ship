@@ -1,8 +1,7 @@
 /**
  * PlanOutputContract — the parse half of the contract (the three standard
  * failures: no_json / agent_reported / schema_mismatch with the issue payload)
- * plus the whole-outcome shape. The scoped merge/replace path is covered by
- * BranchRefinement's tests; the whole outcome here uses a stub store.
+ * plus the whole-outcome shape. The whole outcome here uses a stub store.
  * Isolated temp SQLite DB per AGENTS.md §1.
  */
 import fs from 'node:fs';
@@ -127,8 +126,7 @@ describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
           markdown: '# P',
           steps: [{ id: 's1', title: 'T', detail: '', files: [], branch: null }],
         },
-      }),
-      null
+      })
     );
     if (!outcome) throw new Error('expected plan-bearing outcome');
     expect(outcome.status).toBe('awaiting_approval');
@@ -141,34 +139,6 @@ describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
 });
 
 describe('PlanOutputContract.applyTurnResult', () => {
-  it('forbids plan on branch turns at parse/apply time', async () => {
-    const { contract } = makeContract();
-    await expect(
-      contract.applyTurnResult(
-        ctx,
-        node,
-        PlanTurnKind.Branch,
-        'msg',
-        JSON.stringify({
-          reply: 'updated',
-          plan: { markdown: '# P', steps: [{ title: 'T', detail: '', files: [], branch: null }] },
-        }),
-        {
-          branch: { name: 'auth', title: 'Auth', scope: '', files: [], steps: [], dependsOn: [] },
-          latest: {
-            art: { id: 'a', version: 1, content: '# P' },
-            meta: {
-              steps: [],
-              branches: [{ name: 'auth', title: 'Auth', scope: '', files: [], steps: [], dependsOn: [] }],
-            },
-            rawMeta: {},
-            liveRows: [],
-          },
-        } as never
-      )
-    ).rejects.toThrow(/must not include a whole "plan"/);
-  });
-
   it('parseTurnEnvelope accepts reply-only turns', () => {
     const { contract } = makeContract();
     expect(contract.parseTurnEnvelope(JSON.stringify({ reply: 'only chat' })).reply).toBe('only chat');

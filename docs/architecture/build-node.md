@@ -34,7 +34,7 @@ Engine-only (not serialized to UI):
 - **Entry:** Plan approved (`approve_plan` advances into build); the approved plan artifact is the run input.
 - **Surface:** Panel running state (`Agent is implementing the plan…`) plus the event feed; the plan checklist turns green as the agent reports progress.
 - **Action:** None required; chat can steer (Phase 3).
-- **Outcome:** Branch pushed, `diff` artifact saved, node `awaiting_approval`. A multi-branch plan produces sequential per-branch runs (topo-sorted by `dependsOn`); each branch row moves `pending` → `building` → `awaiting_approval`.
+- **Outcome:** Branch pushed, `diff` artifact saved, node `awaiting_approval`. One build run materializes per plan approval; git branch rows still track the MR branch facts.
 
 ### Phase 2 — Diff review and approval
 
@@ -97,7 +97,7 @@ Generic `NodeChat`: refine sends rerun the node with the message as `feedback`; 
 
 ### Run lifecycle (`run`)
 
-1. `triggerRuns(ctx)`: the latest `plan` artifact is required ("no plan to build — approve the plan first"). Multi-branch plan metas topo-sort into one run per branch with `before`/`after` hooks maintaining branch rows.
+1. `triggerRuns(ctx)`: the latest `plan` artifact is required ("no plan to build — approve the plan first"). A corrupt plan meta is a typed failure; one build run is materialized with the plan run's validated model carried into it.
 2. `run(ctx, input, config)`: `feedback` present → `refine`. Otherwise compose the prompt (instructions + scoped plan + checklist block with the `build-progress` contract; the `prompt_body` knob folds in), bind the worktree, and `execute` the agent on the computed branch.
 3. `finalizeBuild`: apply `build-progress` to the checklist, resolve the pushed branch (worktree HEAD locally, agent-reported in cloud), set `flows.mr_branch`, upsert the branch row (`gitBranch`, `tagRun`), save the `diff` artifact, return `awaiting_approval`.
 4. Orphaned runs (restart mid-build) recover via `recover` / `recoverBranch`: rebuild the `diff` artifact from the branch and re-gate.
@@ -177,7 +177,7 @@ Whole build: free-form reply plus a terminal ` ```json build-progress ` block `{
 
 ## Out of scope
 
-- Plan authoring and branch decomposition — see `plan-node.md`.
+- Plan authoring — see `plan-node.md`.
 - MR creation internals (`mergeRequests` service, commit-fix), the pipeline gate, review/resolve — separate docs.
 - Worktree lifecycle internals (`worktreeManager`) and webhook/poller machinery.
 

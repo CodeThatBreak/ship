@@ -26,24 +26,20 @@ describe("demo seed plan fixtures (turn-envelope authoring)", () => {
     const v1 = parsePlanArtifactMeta(DEMO_FLOW_PLAN_V1.meta);
     expect(v1).not.toBeNull();
     expect(v1?.steps).toHaveLength(7);
-    expect(v1?.branches.map((b) => b.name)).toEqual(["backend", "worker"]);
 
     const v2 = parsePlanArtifactMeta(DEMO_FLOW_PLAN_V2.meta);
     expect(v2).not.toBeNull();
     expect(v2?.steps).toHaveLength(8);
-    expect(v2?.branches).toEqual([]);
   });
 
   it("every fixture markdown + steps validates against the real PlanResponse contract", () => {
-    // the full plan response schema (unique ids, branch membership, dependsOn
-    // resolution, dependency cycles) — the same validation a live plan run gets
+    // unique step ids are the only plan-domain refinement — the same
+    // validation a live plan run gets
     for (const fixture of [DEMO_FLOW_PLAN_V1, DEMO_FLOW_PLAN_V2]) {
-      const branches = "branches" in fixture.meta ? fixture.meta.branches : undefined;
       expect(() =>
         PlanResponse.parse({
           markdown: fixture.markdown,
           steps: fixture.meta.steps,
-          ...(branches ? { branches } : {}),
         }),
       ).not.toThrow();
     }

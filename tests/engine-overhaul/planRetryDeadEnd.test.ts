@@ -61,13 +61,12 @@ describe("plan node Retry is never a dead end", () => {
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
       `art_plan_${flowId}`, plan.id, flowId, "plan", 1, "# Plan",
-      JSON.stringify({ steps: [], branches: [] }), db.now(),
+      JSON.stringify({ steps: [] }), db.now(),
     );
     const recorded = PlanInput.parse({
       turnUserMessage: "move step 2 below step 1",
       previousStatus: "awaiting_approval",
       planTurnKind: "whole",
-      planThread: null,
       model: null,
     });
     await testRun(

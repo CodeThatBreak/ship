@@ -1,11 +1,22 @@
 "use client";
+
 import { useEffect, useState } from "react";
-import { resolveClockLabel } from '../../utils/resolveClockLabel';
-import { CheckCheck, Clock } from "lucide-react";
+import { resolveClockLabel } from "../../utils/resolveClockLabel";
+import { CheckCheck, Clock, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PanelShell, GenericArtifact } from '../../shared';
-import { useNodePanel } from '../../context';
+import { TabsContent } from "@/components/ui/tabs";
+import { PanelShell } from "../../components/shell/PanelShell";
+import { GenericArtifact } from "../../artifacts/components/GenericArtifact";
+import { useNodePanel } from "../../context";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
+import { RESOLVE_TAB, type ResolveTab } from "../constants/tabs";
+import { PanelTabs } from "./tabs/PanelTabs";
+import { UsageArtifact } from "./tabs/UsageArtifact";
+
+const RESOLVE_TABS = [
+  { value: RESOLVE_TAB.RESULT, label: "Result", icon: CheckCheck },
+  { value: RESOLVE_TAB.USAGE, label: "Usage", icon: Gauge },
+] as const;
 
 /**
  * The comment-resolution panel: the queued auto-resolve clock (the debounced
@@ -13,6 +24,7 @@ import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
  */
 export default function ResolveView() {
   const { flow, node, action, model } = useNodePanel();
+  const [activeTab, setActiveTab] = useState<ResolveTab>(RESOLVE_TAB.RESULT);
   const running = node.status === FLOW_STATUS.RUNNING;
 
   // the queue's actual start time — "resolve queued for 14:32"; while the
@@ -36,18 +48,35 @@ export default function ResolveView() {
   ) : null;
 
   return (
-    <>
-      <PanelShell node={node} flow={flow} runningLabel="Agent is fixing open comments…" footer={footer}>
-        {clock && (
-          <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock size={12} />
-            {clock === "pipeline-gated"
-              ? "Auto-resolve is queued — it starts once the pipeline passes."
-              : <>Auto-resolve of open comments starts at <span className="font-medium text-foreground">{clock}</span> (after the waiting period, once the pipeline passes).</>}
-          </div>
-        )}
-        <GenericArtifact node={node} kind="resolve" icon={CheckCheck} empty="Nothing resolved yet." />
-      </PanelShell>
-    </>
+    <PanelShell
+      node={node}
+      flow={flow}
+      hideCost
+      fullBleedContent
+      runningLabel="Agent is fixing open comments…"
+      footer={footer}
+    >
+      <PanelTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        ariaLabel="Resolve views"
+        tabs={RESOLVE_TABS}
+      >
+        <TabsContent value={RESOLVE_TAB.RESULT} className="px-5 pt-4 pb-4">
+          {clock && (
+            <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock size={12} />
+              {clock === "pipeline-gated"
+                ? "Auto-resolve is queued — it starts once the pipeline passes."
+                : <>Auto-resolve of open comments starts at <span className="font-medium text-foreground">{clock}</span> (after the waiting period, once the pipeline passes).</>}
+            </div>
+          )}
+          <GenericArtifact node={node} kind="resolve" icon={CheckCheck} empty="Nothing resolved yet." />
+        </TabsContent>
+        <TabsContent value={RESOLVE_TAB.USAGE} className="px-5 pt-4 pb-4">
+          <UsageArtifact node={node} />
+        </TabsContent>
+      </PanelTabs>
+    </PanelShell>
   );
 }

@@ -1,8 +1,7 @@
 /**
  * Plan-node domain pieces on the agent-node infrastructure: the ONE response
- * schema (plan-domain rules as refinements, carrying the old validator
- * messages verbatim — the retry feedback text depends on them), the
- * deterministic scoped-refine merge/diff, and the generated output-contract
+ * schema (plan-domain rules as refinements — the retry feedback text depends
+ * on their messages), the chat turn paths, and the generated output-contract
  * schemas.
  *
  * Runs against an isolated temp SQLite DB: DATABASE_PATH is read lazily by
@@ -18,15 +17,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 // cycle from here (not from a mid-evaluation node class) so all classes are
 // fully initialized before plan-node is imported
 await import('../../registry');
-const { BranchRefinement } = await import('./branchRefinement');
 const {
   PLAN_RESPONSE_JSON_SCHEMA,
-  SUB_PLAN_RESPONSE_JSON_SCHEMA,
-  SUB_PLAN_PATCH_JSON_SCHEMA,
-  PlanTurnOutput,
-  SubPlanPatch,
   PlanResponse,
-  SubPlanResponse,
   withStepIds,
   PlanInput,
 } = await import('./schema');
@@ -40,7 +33,7 @@ assignTestDatabase();
 const { db } = await import('../../../../db/app');
 
 beforeAll(resetTestDatabase);
-import type { PlanMeta, PlanStep } from './schema';
+import type { PlanStep } from './schema';
 import type { FlowCtx, FlowContextHelper } from '../../shared/nodeSharedExports';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import type { AgentRunner } from '../../../harness/harnessExports';
@@ -58,102 +51,17 @@ const step = (id: string, title: string, branch: string | null = null): PlanStep
   branch,
 });
 
-const metaWithTwoBranches = (): PlanMeta => ({
-  steps: [
-    step('s1', 'Auth service', 'auth'),
-    step('s2', 'Billing table', 'billing'),
-    step('s3', 'Auth tokens', 'auth'),
-    step('s4', 'Billing invoice', 'billing'),
-  ],
-  branches: [
-    {
-      name: 'auth',
-      title: 'Auth',
-      scope: 'logins',
-      files: ['a.ts'],
-      steps: ['Auth service', 'Auth tokens'],
-      dependsOn: [],
-    },
-    {
-      name: 'billing',
-      title: 'Billing',
-      scope: 'invoices',
-      files: ['b.ts'],
-      steps: ['Billing table', 'Billing invoice'],
-      dependsOn: ['auth'],
-      subPlan: { prompt: 'do billing stuff', steps: [] },
-    },
-  ],
-});
-
-/** s2 unchanged, s4 reworded + file added, s5 added, s3 re-emitted (collides
- *  with a kept auth step → the merge must re-id it). */
-const billingRefine = {
-  markdown: '## Billing sub-plan (refined)',
-  steps: [
-    step('s2', 'Billing table'),
-    { ...step('s4', 'Billing invoice'), detail: 'd4-revised', files: ['b.ts', 'c.ts'] },
-    step('s5', 'Stripe sync'),
-    step('s3', 'Echo collision'),
-  ],
-};
-
 describe('PlanResponse — the one plan schema (plan rules as refinements)', () => {
   const valid = {
     markdown: '# Plan',
     steps: [step('s1', 'First'), step('s2', 'Second')],
   };
 
-  it('accepts a branchless plan', () => {
+  it('accepts a valid plan', () => {
     expect(PlanResponse.safeParse(valid).success).toBe(true);
   });
 
-  it('accepts a branched plan with resolvable cross-references', () => {
-    const branched = {
-      ...valid,
-      branches: [
-        { name: 'auth', title: 'Auth', files: [], steps: [], dependsOn: [] },
-        { name: 'billing', title: 'Billing', files: [], steps: [], dependsOn: ['auth'] },
-      ],
-    };
-    expect(PlanResponse.safeParse(branched).success).toBe(true);
-  });
-
-  it('rejects duplicate branch names — the old validator message', () => {
-    const msgs = messagesOf(
-      PlanResponse.safeParse({
-        ...valid,
-        branches: [
-          { name: 'auth', title: 'A', files: [], steps: [], dependsOn: [] },
-          { name: 'auth', title: 'A again', files: [], steps: [], dependsOn: [] },
-        ],
-      })
-    );
-    expect(msgs).toContain('duplicate branch name "auth"');
-  });
-
-  it('rejects dependsOn references to unknown branches — the old validator message', () => {
-    const msgs = messagesOf(
-      PlanResponse.safeParse({
-        ...valid,
-        branches: [{ name: 'auth', title: 'A', files: [], steps: [], dependsOn: ['nope'] }],
-      })
-    );
-    expect(msgs).toContain('dependsOn references unknown branch "nope"');
-  });
-
-  it('rejects steps referencing unknown branches — the old validator message', () => {
-    const msgs = messagesOf(
-      PlanResponse.safeParse({
-        markdown: '# Plan',
-        steps: [step('s1', 'First', 'ghost')],
-        branches: [{ name: 'auth', title: 'A', files: [], steps: [], dependsOn: [] }],
-      })
-    );
-    expect(msgs).toContain('step "s1" references unknown branch "ghost"');
-  });
-
-  it('rejects duplicate step ids — the old validator message', () => {
+  it('rejects duplicate step ids — the retry feedback message', () => {
     const msgs = messagesOf(
       PlanResponse.safeParse({
         ...valid,
@@ -172,145 +80,10 @@ describe('PlanResponse — the one plan schema (plan rules as refinements)', () 
   });
 });
 
-describe("SubPlanResponse — the scoped refine's contract", () => {
-  it('rejects an empty step list', () => {
-    expect(SubPlanResponse.safeParse({ markdown: 'm', steps: [] }).success).toBe(false);
-  });
-
-  it('tolerates an agent echoing a foreign branch name — merge forces it', () => {
-    const parsed = SubPlanResponse.safeParse({
-      markdown: 'm',
-      steps: [{ title: 't', detail: 'd', files: [], branch: 'other-branch' }],
-    });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.steps[0].branch).toBe('other-branch');
-  });
-});
-
-describe('mergeBranchRefine — deterministic scoped merge (§5)', () => {
-  it("splices the branch's new steps in place and re-ids collisions", () => {
-    const merged = BranchRefinement.merge(metaWithTwoBranches(), 'billing', billingRefine);
-    const ids = merged.steps.map(s => s.id);
-
-    // global order preserved; auth steps untouched at their positions
-    expect(ids[0]).toBe('s1');
-    expect(ids[ids.length - 1]).toBe('s3');
-    // no duplicate ids after the merge; the colliding "s3" was re-id'd
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids[4]).not.toBe('s3');
-  });
-
-  it('updates the branch record and preserves the sub-plan prompt', () => {
-    const merged = BranchRefinement.merge(metaWithTwoBranches(), 'billing', billingRefine);
-    const billing = merged.branches.find(b => b.name === 'billing');
-    expect(billing).toBeDefined();
-    expect(billing?.markdown).toBe(billingRefine.markdown);
-    expect(billing?.subPlan?.prompt).toBe('do billing stuff');
-    expect(billing?.subPlan?.steps).toHaveLength(4);
-    // every merged billing step carries the forced branch name
-    expect(merged.steps.filter(s => s.branch === 'billing')).toHaveLength(4);
-  });
-
-  it('leaves other branches byte-identical', () => {
-    const meta = metaWithTwoBranches();
-    const merged = BranchRefinement.merge(meta, 'billing', billingRefine);
-    expect(JSON.stringify(merged.branches[0])).toBe(JSON.stringify(meta.branches[0]));
-    expect(merged.steps.filter(s => s.branch === 'auth')).toEqual(meta.steps.filter(s => s.branch === 'auth'));
-  });
-
-  it('throws on an unknown branch name', () => {
-    expect(() => BranchRefinement.merge(metaWithTwoBranches(), 'ghost', billingRefine)).toThrow();
-  });
-});
-
-describe('diffBranchSteps — id-based with a title fallback (§6)', () => {
-  it('classifies added/removed/changed against the id-preserving merge', () => {
-    const meta = metaWithTwoBranches();
-    const merged = BranchRefinement.merge(meta, 'billing', billingRefine);
-    const oldSteps = meta.steps.filter(s => s.branch === 'billing');
-    const newSteps = merged.steps.filter(s => s.branch === 'billing');
-    const diff = BranchRefinement.diffSteps(oldSteps, newSteps);
-    // s2 unchanged (kept id), s4 changed, s5 added, collision re-id'd → added
-    expect(diff.changed.map(c => c.id)).toEqual(['s4']);
-    expect(diff.removed).toHaveLength(0);
-    expect(diff.added.map(s => s.title).sort()).toEqual(['Echo collision', 'Stripe sync']);
-  });
-
-  it('promotes a renamed id on unchanged content to changed via the title fallback', () => {
-    const diff = BranchRefinement.diffSteps(
-      [
-        { id: 'w1', title: 'Same work', detail: 'x', files: [], branch: null },
-        { id: 'w2', title: 'Other', detail: 'y', files: [], branch: null },
-      ],
-      [
-        { id: 'zz9', title: 'Same work', detail: 'x', files: [], branch: null },
-        { id: 'w2', title: 'Other', detail: 'y', files: [], branch: null },
-      ]
-    );
-    expect(diff.changed).toHaveLength(1);
-    expect(diff.changed[0].id).toContain('w1');
-  });
-});
-
-describe('the generated output-contract schemas', () => {
-  it('renders both contracts as JSON Schema objects (recursion included)', () => {
+describe('the generated output-contract schema', () => {
+  it('renders the plan response as a JSON Schema object', () => {
     expect(PLAN_RESPONSE_JSON_SCHEMA).toBeTypeOf('object');
-    expect(SUB_PLAN_RESPONSE_JSON_SCHEMA).toBeTypeOf('object');
-    expect(SUB_PLAN_PATCH_JSON_SCHEMA).toBeTypeOf('object');
-    expect(JSON.stringify(SUB_PLAN_RESPONSE_JSON_SCHEMA)).toContain('"markdown"');
-  });
-});
-
-describe('SubPlanPatch + PlanTurnOutput', () => {
-  it('rejects an empty subPlanPatch', () => {
-    expect(SubPlanPatch.safeParse({}).success).toBe(false);
-  });
-
-  it('rejects more than one publish field on PlanTurnOutput', () => {
-    expect(
-      PlanTurnOutput.safeParse({
-        reply: 'hi',
-        plan: { markdown: '# P', steps: [step('s1', 'A')] },
-        subPlanPatch: { markdown: 'm' },
-      }).success
-    ).toBe(false);
-  });
-
-  it('accepts reply-only PlanTurnOutput', () => {
-    expect(PlanTurnOutput.safeParse({ reply: 'clarifying question' }).success).toBe(true);
-  });
-});
-
-describe('PlanResponse — branch dependency DAG (Phase 6)', () => {
-  const base = {
-    markdown: '# Plan',
-    steps: [step('s1', 'First'), step('s2', 'Second')],
-  };
-  const branch = (name: string, dependsOn: string[]) => ({
-    name,
-    title: name,
-    files: [],
-    steps: [],
-    dependsOn,
-  });
-
-  it('rejects a branch dependency cycle (auth → billing → auth) — the retry feedback message', () => {
-    const msgs = messagesOf(
-      PlanResponse.safeParse({
-        ...base,
-        branches: [branch('auth', ['billing']), branch('billing', ['auth'])],
-      })
-    );
-    expect(msgs).toContain('branch dependency cycle: auth → billing → auth');
-  });
-
-  it('accepts a diamond branch DAG (a→b, a→c, b→d, c→d)', () => {
-    expect(
-      PlanResponse.safeParse({
-        ...base,
-        branches: [branch('a', []), branch('b', ['a']), branch('c', ['a']), branch('d', ['b', 'c'])],
-      }).success
-    ).toBe(true);
+    expect(JSON.stringify(PLAN_RESPONSE_JSON_SCHEMA)).toContain('"markdown"');
   });
 });
 
@@ -349,7 +122,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     id: 'art_1',
     version: 2,
     content: '# Plan document',
-    meta: { steps: [step('s1', 'First', 'auth')], branches: [] },
+    meta: { steps: [step('s1', 'First')] },
   };
 
   /** The stub harness: support journals artifact saves + node updates + events;
@@ -651,150 +424,6 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(art).toBeDefined();
     expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
     expect(observ.events).toContain(`plan v${art.version} ready for review · 2 steps`);
-  });
-});
-
-describe('PlanNode.turn — unified send routing', () => {
-  const branchedPlanRow = {
-    id: 'art_branch',
-    version: 2,
-    content: '# Plan document',
-    meta: {
-      steps: metaWithTwoBranches().steps,
-      branches: metaWithTwoBranches().branches,
-    },
-  };
-
-  let turnArtifactSeq = 0;
-
-  const turnNode = (opts: { responses: string[]; prevRow?: typeof branchedPlanRow | null; output?: string }) => {
-    const observ = {
-      startAgentInputs: [] as { followUpOn: string | null }[],
-      savedMetas: [] as Record<string, unknown>[],
-      nodePatches: [] as Record<string, unknown>[],
-    };
-    const responses = [...opts.responses];
-    const support = {
-      nodeByKey: async () =>
-        ({
-          id: 'node-1',
-          flowId: 'flow-1',
-          nodeKey: 'plan',
-          status: 'awaiting_approval',
-          agentId: 'whole_agent',
-          output:
-            opts.output ??
-            ({
-              latestArtifact: 'art_branch',
-              version: 2,
-              branchAgents: { billing: 'branch_agent' },
-            } as Record<string, unknown>),
-          config: '{}',
-        }) as unknown as NodeRow,
-      lastAgentId: async () => 'agent_turn',
-      setNode: async (_id: string, patch: Record<string, unknown>) => {
-        observ.nodePatches.push(patch);
-      },
-      applyTransition: async (_f: string, _k: string, _key: string, o?: { toStatus?: string; patch?: Record<string, unknown> }) => {
-        observ.nodePatches.push({ status: o?.toStatus, ...(o?.patch ?? {}) });
-        return true;
-      },
-      publishOutcome: async (p: { outcome: { status: string; output: Record<string, unknown>; agentId?: string | null } }) => {
-        observ.nodePatches.push({ status: p.outcome.status, output: p.outcome.output, agent_id: p.outcome.agentId ?? null });
-      },
-      latestArtifact: async () => (opts.prevRow === undefined ? branchedPlanRow : opts.prevRow),
-      artifactsOfKind: async () => [branchedPlanRow],
-      async saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
-        observ.savedMetas.push((meta ?? null) as Record<string, unknown>);
-        const prev = await testGet<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
-        const version = (prev?.v ?? 0) + 1;
-        const id = `art_turn_${String(++turnArtifactSeq)}`;
-        await testRun(
-          `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'draft',$8)`,
-          id,
-          nodeId,
-          flowId,
-          kind,
-          version,
-          content,
-          meta ? JSON.stringify(meta) : null,
-          db.now()
-        );
-        return { id, version };
-      },
-      emitLifecycle: async () => {},
-      emit: async () => {},
-      // the completion batch (step 06) runs its writes through the support
-      // transaction — the stub executes the batch inline
-      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}),
-    } as unknown as NodeSupport;
-    const runner = {
-      startAgent: (_ctx: FlowCtx, input: unknown) => {
-        observ.startAgentInputs.push(input as { followUpOn: string | null });
-        return Promise.resolve({ agentId: 'agent_turn', runId: 'run_1' });
-      },
-      executeRun: (_ctx: FlowCtx, _nodeId: string, start: () => Promise<unknown>) =>
-        start().then(() => ({
-          result: {
-            status: 'finished',
-            result: responses.shift(),
-            sessionId: 's',
-            durationMs: 1,
-            usage: null,
-          },
-          runRowId: 'run_row_test',
-        })),
-    } as unknown as AgentRunner;
-    const node = new PlanNode(
-      support,
-      runner,
-      { taskContext: () => 'ctx', taskLabel: () => 'task', execMode: () => 'cloud' } as unknown as FlowContextHelper
-    );
-    return { node, observ };
-  };
-
-  const ctx = { flow: { id: 'flow-1' }, task: { key: 'T-1' } } as unknown as FlowCtx;
-
-  it('throws for an unknown branch thread', async () => {
-    const { node } = turnNode({ responses: [] });
-    await expect(node.turn(ctx, 'hello', { thread: 'ghost' })).rejects.toThrow('branch "ghost" not found');
-  });
-
-  it('branch reply-only: no artifact write', async () => {
-    const { node, observ } = turnNode({ responses: [JSON.stringify({ reply: 'scoped answer' })] });
-    const reply = await node.turn(ctx, 'question', { thread: 'billing' });
-    expect(reply).toBe('scoped answer');
-    expect(observ.savedMetas).toHaveLength(0);
-    expect(observ.startAgentInputs[0]?.followUpOn).toBe('branch_agent');
-  });
-
-  it('rejects whole plan payload on branch turns after retry', async () => {
-    const planPayload = { markdown: '# P', steps: [step('s1', 'Only')] };
-    const { node } = turnNode({
-      responses: [
-        JSON.stringify({ reply: 'nope', plan: planPayload }),
-        JSON.stringify({ reply: 'still nope', plan: planPayload }),
-      ],
-    });
-    const reply = await node.turn(ctx, 'change billing', { thread: 'billing' });
-    expect(reply).toContain("couldn't produce a valid plan");
-  });
-
-  it('applies subPlanPatch on a branch thread', async () => {
-    const { node, observ } = turnNode({
-      responses: [
-        JSON.stringify({
-          reply: 'patched billing step',
-          subPlanPatch: { upsertSteps: [{ ...step('s4', 'Billing invoice'), detail: 'via patch' }] },
-        }),
-      ],
-    });
-    const reply = await node.turn(ctx, 'tweak invoice step', { thread: 'billing' });
-    expect(reply).toBe('patched billing step');
-    expect(observ.savedMetas).toHaveLength(1);
-    const meta = observ.savedMetas[0] as { steps: PlanStep[] };
-    expect(meta.steps.find(s => s.id === 's4' && s.branch === 'billing')?.detail).toBe('via patch');
   });
 });
 

@@ -162,7 +162,7 @@ as text is reinterpreted in the session timezone).
 | Store | Table(s) | Responsibility |
 |-------|----------|----------------|
 | `EventStore` | `events` | Append-only flow event log; `listEvents` (id-cursor pagination) and `listEventsTail` feed the live activity view |
-| `MessageStore` | `messages` | Chat transcript per flow, with nullable `thread` for branch-scoped conversations |
+| `MessageStore` | `messages` | Chat transcript per flow, with a nullable `thread` for generic conversation tabs |
 | `SettingsStore` | `settings` | JSONB key/value settings, Zod-validated on read with a caller-supplied fallback |
 | `RepoStore` | `repos` | Repo registry (local path ↔ cloud URL), URL normalization, upsert/delete, per-repo worktree-policy columns |
 | `GitLabInstanceStore` | `gitlab_instances` | Self-hosted GitLab instances; tokens sealed via `IntegrationSecretStore` |

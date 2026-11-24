@@ -33,21 +33,10 @@ type SelectVersionAction = {
   payload: { id: string | null };
 };
 
-type ToggleBranchAction = {
-  type: typeof ACTION_TYPES.TOGGLE_BRANCH;
-  payload: { name: string };
-};
-
-type CollapseBranchAction = {
-  type: typeof ACTION_TYPES.COLLAPSE_BRANCH;
-};
-
 export type Action =
   | RetryAction
   | PlanCancelAction
   | ApproveAction
   | SetPlanStepAction
   | UpdatePlanStepsAction
-  | SelectVersionAction
-  | ToggleBranchAction
-  | CollapseBranchAction;
+  | SelectVersionAction;

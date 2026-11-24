@@ -13,18 +13,10 @@ export interface PlanStepPayload {
 
 export interface PlanUiState {
   selectedId: string | null;
-  expandedBranch: string | null;
 }
 
 /** The `{ type, payload }` actions the plan-view reducer handles. */
-export type PlanUiAction =
-  | { type: (typeof PLAN_UI_ACTION)['SELECT_VERSION']; payload: { id: string | null } }
-  | { type: (typeof PLAN_UI_ACTION)['TOGGLE_BRANCH']; payload: { name: string } }
-  | { type: (typeof PLAN_UI_ACTION)['COLLAPSE_BRANCH'] };
-
-/** The branch shape branch-refine reads from `node.output.branches`:
- *  the thread name and the branch's own (scoped-refined) document. */
-export interface RefineBranch {
-  name: string;
-  markdown?: string;
-}
+export type PlanUiAction = {
+  type: (typeof PLAN_UI_ACTION)['SELECT_VERSION'];
+  payload: { id: string | null };
+};

@@ -1,13 +1,12 @@
 'use client';
 import type { Node } from '@/types/flow';
-import { CostChip } from '../../../panels/shared';
 import { Badge } from '@/components/ui/badge';
 import { isFailedStatus, statusVariantOf } from '@/constants/flow';
 
 /**
- * Sticky plan panel header: title, status badge, cost chip and the refine
- * action — it focuses the chat composer (docs/plan-conversation-refine.md
- * §4b; before the first plan the composer IS the plan input and starts focused).
+ * Sticky plan panel header: title and status badge. Usage lives in its own
+ * tab, keeping the header focused on plan state. Before the first plan, the
+ * composer is the plan input and starts focused (docs/plan-conversation-refine.md §4b).
  */
 export function PlanPanelHeader({ node }: { node: Node }) {
   return (
@@ -17,7 +16,6 @@ export function PlanPanelHeader({ node }: { node: Node }) {
         <span className="size-1.5 rounded-full bg-current" />
         {node.status.replace(/_/g, ' ')}
       </Badge>
-      <CostChip node={node} />
     </div>
   );
 }

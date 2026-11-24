@@ -4,9 +4,7 @@ import { fetchJson, postJson } from './fetchJson';
 
 const CHAT_REFETCH_MS = 4000;
 
-/** One chat turn, scoped to a node (or flow-level when nodeKey is unset).
- *  `thread` (the plan node's branch names) puts the turn in a refinement tab
- *  instead of the main conversation. */
+/** One chat turn, scoped to a node (or flow-level when nodeKey is unset). */
 export type ChatMessage = {
   id: string;
   nodeKey?: string;
@@ -66,28 +64,10 @@ export function useFetchAllNodePrompt(flowId: string) {
 }
 
 /**
- * A node's branch-scoped prompt body (the plan composer's scoped-refine
- * prefill, §4c). The route answers 400 when the ref'd branch is no longer in
- * the latest plan — the read stays failed and the chip shows invalidated.
- */
-export function useNodeBranchPrompt(flowId: string, nodeKey: string, branch: string | null) {
-  return useQuery({
-    queryKey: queryKeys.flows.nodeBranchPrompt(flowId, nodeKey, branch ?? ''),
-    queryFn: () =>
-      fetchJson<PromptPayload>(
-        `/api/flows/${flowId}/prompt?node=${encodeURIComponent(nodeKey)}&branch=${encodeURIComponent(branch ?? '')}`
-      ),
-    enabled: branch != null,
-    // null (not "") so a missing branch body fails loudly in the composer
-    select: d => d.prompt ?? null,
-  });
-}
-
-/**
  * Send a chat message to the flow's agent (the options passed as one object
  * so the gating and model pick are always current) and refresh the
- * transcript on success. `thread` tags the turn with the active refinement
- * tab (the plan's sub-plan refines) instead of the main conversation.
+ * transcript on success. `thread` tags the turn for consumers that split the
+ * conversation into tabs.
  */
 export function useSendChatMessage(flowId: string, nodeKey: string, options: ChatSendOptions) {
   const queryClient = useQueryClient();

@@ -13,4 +13,4 @@ interface PlanRunArgs {
 
 export type { PlanRunArgs };
 
-export type { LatestPlan, ScopedRefine } from './scopedRefine';
+export type { LatestPlan } from './latestPlan';

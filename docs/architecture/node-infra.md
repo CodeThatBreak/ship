@@ -34,7 +34,7 @@ The abstract root class. Each def declares:
 - **Identity and graph** — `key`, `label`, `order`, `edges` (`[target, "next" | "loop"]`), `isEntry` for the flow-opening kind.
 - **Contracts** — `inputSchema` (strict run input), `outputSchema` (persisted `output` column), `configSchema` / `configFields` (typed knobs driving the auto-generated configurator form), `outputContract()` for the Contract tab, `choices()` for decision kinds.
 - **Engine-dispatch metadata** — call sites key off these flags, never literal def keys: `builtinApproval` (approval is a builtin flow action, not generic `approve_node`), `chainRole` (`plan` | `build` | `review` | `resolve`), `resourceArtifacts`, `waitForKind`, `promptKeys` / `promptSections`.
-- **Lifecycle** — `run(ctx, input, config)` → `RunOutcome`; `triggerInput` / `triggerRuns` for auto-start bundles (multi-run for the multi-branch build); `recover()` for restart recovery.
+- **Lifecycle** — `run(ctx, input, config)` → `RunOutcome`; `triggerInput` / `triggerRuns` for auto-start bundles (the build trigger yields a single run); `recover()` for restart recovery.
 - **Persistence** — `applyOutcome` is THE one finish path (artifact, validated output, status, lifecycle event) shared by normal runs, no-run outcomes, and recovery, with optional `attempt_id` fencing via `RunSupersededError`.
 
 Shared services are constructor-injected with singleton defaults (`NodeSupport`, `FlowContextHelper`) — tests pass their own instances.

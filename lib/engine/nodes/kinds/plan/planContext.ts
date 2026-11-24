@@ -5,7 +5,6 @@ import type { NodeSupport } from '../../shared/nodeSupport';
 import { CONTEXT_BLOCKS, CONTEXT_BLOCK_ORDER } from './constants/contextBlocks';
 import type { PlanInput } from './schema';
 import type { PlanStore } from './planStore';
-import type { ScopedRefine } from './types/planTypeExports';
 import type { ContextBlockId, ContextBlockInfo } from './types/contextBlocks';
 
 /**
@@ -22,46 +21,39 @@ export class PlanContextBlocks {
     private readonly ctxHelper: FlowContextHelper,
   ) {}
 
-  /** A block id → its rendered text, from the mode's state (scoped or whole). */
-  private readonly renderers: Record<ContextBlockId, (ctx: FlowCtx, scoped: ScopedRefine | null) => Promise<string>> = {
+  /** A block id → its rendered text. */
+  private readonly renderers: Record<ContextBlockId, (ctx: FlowCtx) => Promise<string>> = {
     task: (ctx) => Promise.resolve(this.ctxHelper.taskContext(ctx)),
-    contract: (_ctx, scoped) => (scoped ? Promise.resolve(this.renderContract(scoped)) : Promise.resolve('')),
-    current: (_ctx, scoped) => (scoped ? Promise.resolve(this.renderCurrent(scoped)) : Promise.resolve('')),
-    branches: (ctx, scoped) => this.renderBranches(ctx.flow.id, scoped),
-    edits: (ctx, scoped) => (scoped ? Promise.resolve('') : this.renderEdits(ctx.flow.id)),
+    edits: (ctx) => this.renderEdits(ctx.flow.id),
   };
 
   /** Resolve every block's rendered text (picker data + assembly source). */
-  async resolve(ctx: FlowCtx, scoped: ScopedRefine | null): Promise<ContextBlockInfo[]> {
-    const isScoped = Boolean(scoped);
+  async resolve(ctx: FlowCtx): Promise<ContextBlockInfo[]> {
     return Promise.all(CONTEXT_BLOCKS.map(async spec => {
-      const text = await this.renderers[spec.id](ctx, scoped);
+      const text = await this.renderers[spec.id](ctx);
       return {
         id: spec.id,
         label: spec.label,
         description: spec.description,
         text,
         chars: text.length,
-        defaultOn: isScoped ? spec.scopedDefault : spec.wholeDefault,
-        locked: Boolean(spec.pinned) && isScoped,
+        defaultOn: spec.wholeDefault,
+        locked: Boolean(spec.pinned),
       };
     }));
   }
 
   /**
    * Assemble {{context}} from the block registry. Unknown ids are dropped
-   * silently and logged at debug; the pinned `contract` block is always
-   * included for scoped refines regardless of the client selection. An empty
-   * selection falls back to the per-mode defaults (the minimal-context
-   * recommendation).
+   * silently and logged at debug. An empty selection falls back to the
+   * defaults (the minimal-context recommendation).
    */
   async assemble(
     ctx: FlowCtx,
     input: Pick<PlanInput, 'contextBlocks'>,
-    scoped: ScopedRefine | null,
-    opts: { skipContract?: boolean; skip?: ContextBlockId[] } = {}
+    opts: { skip?: ContextBlockId[] } = {}
   ): Promise<string> {
-    const blocks = await this.resolve(ctx, scoped);
+    const blocks = await this.resolve(ctx);
     const selected = new Set(input.contextBlocks ?? []);
     const useDefaults = selected.size === 0;
     const byId = new Map<string, ContextBlockInfo>(blocks.map(b => [b.id as string, b]));
@@ -75,15 +67,7 @@ export class PlanContextBlocks {
     const include = new Set<string>();
     for (const b of blocks) {
       if (skip.has(b.id)) continue;
-      if (b.locked)
-        include.add(b.id); // pinned: `contract` for scoped refines
-      else if (useDefaults ? b.defaultOn : selected.has(b.id)) include.add(b.id);
-    }
-    if (opts.skipContract) {
-      // The contract is template-pinned (renders via {{scope}}/{{files}}/
-      // {{dependsOn}}/{{dependsOnSummaries}}) — never duplicate it into
-      // {{context}}. Its char count is still reported to the picker.
-      include.delete('contract');
+      if (b.locked || (useDefaults ? b.defaultOn : selected.has(b.id))) include.add(b.id);
     }
 
     return CONTEXT_BLOCK_ORDER.flatMap(id => {
@@ -93,34 +77,7 @@ export class PlanContextBlocks {
     }).join('\n\n');
   }
 
-  /** Branch contract text — scope, files, and what the sub-plan may assume exists. */
-  private renderContract(scoped: ScopedRefine): string {
-    const b = scoped.branch;
-    return [
-      `- scope: ${b.scope || '(none stated)'}`,
-      `- files: ${b.files?.length ? b.files.join(', ') : '(none stated)'}`,
-      `- depends on: ${b.dependsOn.length ? b.dependsOn.join(', ') : '(none)'}`,
-      this.store.dependencySummaries(scoped.latest, b),
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  /** Current sub-plan block: prompt + live checklist rows (hand edits included). */
-  private renderCurrent(scoped: ScopedRefine): string {
-    const prompt = scoped.branch.subPlan?.prompt ? `"""\n${scoped.branch.subPlan.prompt}\n"""` : '(none yet)';
-    return `Sub-plan prompt:\n${prompt}\n\nCurrent steps:\n${this.store.stepsText(scoped.liveRows)}`;
-  }
-
-  /** Sibling branches as title + scope summaries only. */
-  private async renderBranches(flowId: string, scoped: ScopedRefine | null): Promise<string> {
-    const branches = (await this.store.latestPlan(flowId))?.meta.branches ?? [];
-    const others = scoped ? branches.filter(b => b.name !== scoped.branch.name) : branches;
-    if (!others.length) return '';
-    return others.map(b => `- \`${b.name}\` (${b.title}): ${b.scope || '(no scope)'}`).join('\n');
-  }
-
-  /** The developer's live hand edits — whole-plan refines only (§4). */
+  /** The developer's live hand edits — treat them as intent (§4). */
   private async renderEdits(flowId: string): Promise<string> {
     const all = await this.store.liveRows(flowId);
     if (!all.length) return '';
@@ -128,10 +85,7 @@ export class PlanContextBlocks {
       'The developer already adjusted the plan checklist like this — treat these as intent and ' +
       'preserve them unless the feedback changes them:\n' +
       all
-        .map(
-          r =>
-            `- ${r.metaId ?? r.id}: ${r.title}${r.detail ? ` — ${r.detail}` : ''}${r.branch ? ` (branch: ${r.branch})` : ''}`
-        )
+        .map(r => `- ${r.metaId ?? r.id}: ${r.title}${r.detail ? ` — ${r.detail}` : ''}`)
         .join('\n')
     );
   }

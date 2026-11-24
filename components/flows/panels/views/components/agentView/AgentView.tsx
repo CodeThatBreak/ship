@@ -25,6 +25,7 @@ export default function AgentView() {
       node={node}
       flow={flow}
       hideCost
+      fullBleedContent
       runningLabel={`${node.label || node.templateName || node.nodeKey} is running…`}
       footer={<AgentFooter node={node} action={action} model={model} />}
     >

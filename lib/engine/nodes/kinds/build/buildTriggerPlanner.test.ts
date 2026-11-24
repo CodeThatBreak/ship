@@ -1,13 +1,12 @@
 /**
  * BuildTriggerPlanner — the engine-trigger materialization carved out of the
- * build def (§T6/§12): the approved-plan read and the multi-branch sequential
- * decomposition (branch rows first, topo order, plan-run model carried
- * through).
+ * build def (§T6/§12): the approved-plan read and the single build run carrying
+ * the plan-run model through.
  *
  * The invariants under test: a corrupt plan meta is a typed failure (step
  * 05) and the plan model comes from the PLAN node's validated output contract.
  */
-import { testAll, testRun } from "@/tests/helpers/rawTestDb";
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
@@ -18,7 +17,6 @@ assignTestDatabase();
 beforeAll(resetTestDatabase);
 const { nodeSupport } = await import("@/lib/composition/container");
 const { BuildTriggerPlanner } = await import("./buildTriggerPlanner");
-const { branchStore } = await import("./branchStore");
 const { NODE_KEYS } = await import("../../../constants/nodeKeys");
 import type { FlowCtx } from "../../shared/nodeSharedExports";
 
@@ -58,8 +56,6 @@ async function seed(index: number, opts: { planContent?: string; planMeta?: unkn
   return { flowId, ctx };
 }
 
-const branchInput = (run: { input: { branchInfo: { name: string } | null } }) => run.input.branchInfo?.name ?? null;
-
 describe("BuildTriggerPlanner — triggerRuns", () => {
   it("single-branch fast path: the approved plan content + the plan run's validated model", async () => {
     const planner = new BuildTriggerPlanner(nodeSupport);
@@ -69,33 +65,6 @@ describe("BuildTriggerPlanner — triggerRuns", () => {
     expect(runs[0]?.input).toEqual({
       plan: "# The plan", prompt: null, branchInfo: null, feedback: null, model: "model-x",
     });
-  });
-
-  it("multi-branch plans come back as sequential runs in topo order, branch rows pending first", async () => {
-    const planner = new BuildTriggerPlanner(nodeSupport);
-    const s = await seed(54, {
-      planContent: "# Branchy plan",
-      planMeta: {
-        steps: [],
-        branches: [
-          { name: "br-b", title: "Branch B", dependsOn: ["br-a"] },
-          { name: "br-a", title: "Branch A" },
-        ],
-      },
-    });
-    const runs = await planner.triggerRuns(s.ctx);
-    expect(runs).toHaveLength(2);
-    expect(branchInput(runs[0] as never)).toBe("br-a");
-    expect(branchInput(runs[1] as never)).toBe("br-b");
-    const rows = await branchStore.list(s.flowId);
-    expect(rows.map((r) => ({ name: r.name, order: r.order, status: r.status }))).toEqual([
-      { name: "br-a", order: 0, status: "pending" },
-      { name: "br-b", order: 1, status: "pending" },
-    ]);
-    const events = await testAll<{ message: string }>(
-      `SELECT message FROM events WHERE flow_id=$1 AND message LIKE '%building sequentially%'`, s.flowId,
-    );
-    expect(events).toHaveLength(1);
   });
 
   it("a CORRUPT plan meta is a typed failure, not a silent single-branch fallback (step 05)", async () => {

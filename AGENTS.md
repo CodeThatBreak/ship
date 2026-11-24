@@ -22,11 +22,10 @@ npm run lint         # eslint
 npm test             # vitest
 npm run check        # typecheck + lint + test
 node scripts/seed-demo-flow.mjs           # demo SDLC flow (DEMO-142); --reset removes it
-node scripts/seed-branch-refine-demo.mjs  # branch-scoped refine demo (DEMO-207); --reset
 node scripts/seed-custom-flow.mjs         # custom template demo (DEMO-201); --reset
 ```
 
-The two seed scripts for the removed child-flow demos were deleted with those features; see [`docs/child-flow-removal.md`](docs/child-flow-removal.md).
+The seed scripts for the removed child-flow and branch-refine demos were deleted with those features; see [`docs/child-flow-removal.md`](docs/child-flow-removal.md).
 
 A task is done only when all of these are true:
 
@@ -41,7 +40,7 @@ A task is done only when all of these are true:
 
 ## 1. Safety Rules (read first)
 
-- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoUrl()` only — check `DATABASE_URL` (the target database must be `devflow`) and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs` (each accepts `--reset`).
+- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoUrl()` only — check `DATABASE_URL` (the target database must be `devflow`) and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-custom-flow.mjs` (each accepts `--reset`).
 - Do not add new dependencies without asking.
 - No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
 - Ask before changing `prisma/schema.prisma`. Schema changes must be coordinated with the JSONB payload validators in `lib/db/rows.ts`, and land as a Prisma migration (`prisma migrate dev`). Enum values are sticky (removal is hard) — get status vocabularies right at authoring time.
@@ -202,7 +201,7 @@ export function NodePanelSkeleton() {
 - File naming — component files match their export in PascalCase; everything else is lowercase:
   - Folders start lowercase: `components/flows/plan/masterPlanSection/`, never `plan-section/` or `PlanSection/`.
   - A component file is named after its export in PascalCase — `PlanView.tsx` exports `PlanView`, `MasterPlanSection.tsx` exports `MasterPlanSection`.
-  - Component names (the exports) always start with a capital letter in PascalCase: `PlanView`, `SubPlanCard`.
+  - Component names (the exports) always start with a capital letter in PascalCase: `PlanView`, `PlanStepItem`.
   - Hook files are camelCase with the `use` prefix mirroring the hook name: `useExecutionPick.ts` exports `useExecutionPick`. Never `use-execution-pick.ts`.
   - Constants, types, utils, and **all other non-component modules** (including `lib/**` and scripts that are TS) use camelCase filenames (`constants/queryKeys.ts`, `lib/engine/flowEngine.ts`).
   - **Folders** under `components/`, `lib/`, and `hooks/` use camelCase (`templateEditor/`, `workflowGraph/`). Do not rename `components/ui/**` or Next.js `app/api/**` route segments (URL paths).

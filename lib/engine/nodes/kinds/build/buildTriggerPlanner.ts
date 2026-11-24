@@ -5,42 +5,44 @@ import type { FlowCtx } from "../../shared/nodeSharedExports";
 import type { NodeSupport } from "../../shared/nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
-import { branchStore } from "./branchStore";
-import { topoSortBranches } from "./utils/topoSortBranches";
-import { type PlanBranch, parsePlanArtifactMeta, PlanOutput } from "../plan/schema";
+import { parsePlanArtifactMeta, PlanOutput } from "../plan/schema";
 
 /**
  * BuildTriggerPlanner — the build kind's engine-trigger materialization (the
- * StageRunner input side): the runs one build trigger starts.
+ * StageRunner input side): the single run a build trigger starts, carrying the
+ * plan run's model into it.
  *
- * Role: reads the approved plan artifact, decomposes its plan-meta into
- * sequential multi-branch runs (branch rows first, one run per topologically
- * sorted branch), and carries the plan run's model into every build run.
- * Plan-meta parsing is a built-in internal — it lives in the kind, never in
- * the engine.
+ * Role: reads the approved plan artifact, validates its meta, and carries the
+ * plan run's model into the build run. Plan-meta parsing is a built-in
+ * internal — it lives in the kind, never in the engine.
  *
- * Invariants: a CORRUPT plan meta is a typed failure, never a silent
- * single-branch fallback (the decomposition would silently vanish — step
- * 05); the model comes from the PLAN node's published output contract,
+ * Invariants: a CORRUPT plan meta is a typed failure, never a silent fallback
+ * (step 05); the model comes from the PLAN node's published output contract,
  * validated, never a blind cast with a silent `?? undefined` fallback (step
  * 04/05).
  *
- * Must never: write node status (branch rows are bookkeeping, not the state
- * machine) or read plans other than the plan node's published `plan`
- * artifact.
+ * Must never write node status or read plans other than the plan node's
+ * published `plan` artifact.
  */
 export class BuildTriggerPlanner {
   constructor(private readonly support: NodeSupport = nodeSupport) {}
 
   /**
    * Engine-triggered runs (the plan → build edge activation when the plan is
-   * approved): the approved plan artifact + branch decomposition from the
-   * plan meta + the model picked for the plan run. Multi-branch plans come
-   * back as sequential runs.
+   * approved): the approved plan artifact and the model picked for the plan
+   * run.
    */
   async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
     const plan = await this.approvedPlan(ctx);
     const planContent = plan.content;
+
+    // step 05: a CORRUPT plan meta is a typed failure, not a silent fallback
+    if (plan.meta != null) {
+      const parsed = parsePlanArtifactMeta(plan.meta);
+      if (parsed == null) {
+        throw new Error(`the approved plan artifact's meta does not satisfy the plan contract — re-approve a valid plan instead of building from corrupt meta`);
+      }
+    }
 
     // carry the model selected for the plan run into the build (from plan
     // output) — validated against the PLAN node's published output contract
@@ -49,41 +51,6 @@ export class BuildTriggerPlanner {
     const parsedPlanOutput = PlanOutput.safeParse(planNode?.output ?? null);
     const planModel = parsedPlanOutput.success ? (parsedPlanOutput.data.model ?? undefined) : undefined;
 
-    // structured branches from the plan-meta (validated by the plan node at save time)
-    let branches: PlanBranch[] | null = null;
-    const meta = plan.meta ?? null;
-    if (meta != null) {
-      // step 05: a CORRUPT plan meta is a typed failure, not a silent
-      // single-branch fallback — the branch decomposition would silently
-      // vanish (parsePlanArtifactMeta returns null only for a shape the
-      // schema rejects; legacy metas without branches still parse)
-      const parsed = parsePlanArtifactMeta(meta);
-      if (parsed == null) {
-        throw new Error(`the approved plan artifact's meta does not satisfy the plan contract — re-approve a valid plan instead of building from corrupt meta`);
-      }
-      if (parsed.branches.length > 0) branches = parsed.branches;
-    }
-
-    if (branches && branches.length > 1) {
-      const sorted = topoSortBranches(branches);
-      // branch rows first (pending) — today's approvePlan behavior
-      for (const [i, b] of sorted.entries()) {
-        await branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" });
-      }
-      await this.support.emitLifecycle(ctx.flow.id, null, `plan approved with ${branches.length} branches — building sequentially`,
-        { nodeKey: planNode?.nodeKey ?? NODE_KEYS.PLAN });
-      return sorted.map((b) => ({
-        input: {
-          plan: planContent, prompt: null,
-          branchInfo: { name: b.name, title: b.title, scope: b.scope },
-          feedback: null, model: planModel ?? null,
-        },
-        before: () => { void branchStore.upsert(ctx.flow.id, b.name, { status: "building" }); },
-        after: () => { void branchStore.upsert(ctx.flow.id, b.name, { status: "awaiting_approval" }); },
-      }));
-    }
-
-    // single-branch fast path
     return [{
       input: { plan: planContent, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null },
     }];

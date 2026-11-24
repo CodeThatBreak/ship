@@ -6,8 +6,6 @@
 /** Plan-view UI-reducer actions (the panel's local state, hooks/usePlanUi.ts). */
 export const PLAN_UI_ACTION = {
   SELECT_VERSION: 'select_version',
-  TOGGLE_BRANCH: 'toggle_branch',
-  COLLAPSE_BRANCH: 'collapse_branch',
 } as const;
 
 /** Plan-checklist step statuses. */
@@ -27,10 +25,9 @@ export const PLAN_STEP_COMPLETED_BY = {
 } as const;
 
 /** Version tab caption copy (§6b): the truncation length and the provenance
- *  strings `planTabCaption` (branch-diff.ts) emits — one home, not inline JSX. */
+ *  string `planTabCaption` emits — one home, not inline JSX. */
 export const PLAN_TAB_CAPTION_MAX = 40;
 export const PLAN_TAB_CAPTION_REFINED_IN_CHAT = 'refined in chat';
-export const PLAN_TAB_CAPTION_BRANCH_PREFIX = 'branch refine: ';
 /** Provenance source of a conversational refine — mirrors the engine's
  *  `REFINED_FROM_SOURCE` value (lib/ is server-only; the UI keeps the same
  *  strings per the constants/flow.ts pattern). */

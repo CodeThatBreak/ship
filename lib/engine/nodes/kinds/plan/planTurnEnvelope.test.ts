@@ -29,13 +29,6 @@ describe('PlanTurnOutput envelope', () => {
     expect(PlanTurnOutput.safeParse({ reply: 'ok' }).success).toBe(true);
     expect(PlanTurnOutput.safeParse({ reply: 'ok', plan: invalidPlan }).success).toBe(false);
   });
-
-  it('rejects more than one publish payload', () => {
-    expect(
-      PlanTurnOutput.safeParse({ reply: 'x', plan: goodPlan, subPlanPatch: { upsertSteps: [goodPlan.steps[0]] } })
-        .success
-    ).toBe(false);
-  });
 });
 
 describe('PlanOutputContract.parseTurnEnvelope', () => {

@@ -31,7 +31,7 @@ Set the default mode and local-agent options (auto-approve tools, sandbox, timeo
                                                                ▲─────────────┘
 ```
 
-- **Plan node** — Cursor agent (plan mode) reads the repo + task PRD + Figma links and drafts an implementation plan. Refine it in a loop; every iteration is versioned (`v1, v2, …`) and you can view/diff each version. Every planner turn returns a JSON envelope (`PlanTurnOutput`: a `reply` plus at most one of a full plan, a sub-plan, or a checklist patch). A published plan version is an ordered **step checklist** (`{id, title, detail, files, branch}`) plus optional multi-branch decomposition, persisted as validated JSONB in the plan artifact's meta (`{feedback, steps, branches, refinedFrom, scopedRefine}` — written by `planStore.persistPlan`) — there is no markdown meta block to parse. The checklist is extracted into an **editable UI**: toggle steps done, retitle/reword, add/delete steps, reorder — manual edits survive across refinements, and done steps stay done when a refinement keeps their id.
+- **Plan node** — Cursor agent (plan mode) reads the repo + task PRD + Figma links and drafts an implementation plan. Refine it in a loop; every iteration is versioned (`v1, v2, …`) and you can view/diff each version. Every planner turn returns a JSON envelope (`PlanTurnOutput`: a `reply` plus an optional full `plan`). A published plan version is an ordered **step checklist** (`{id, title, detail, files, branch}`), persisted as validated JSONB in the plan artifact's meta (`{feedback, steps, refinedFrom}` — written by `planStore.persistPlan`) — there is no markdown meta block to parse. The checklist is extracted into an **editable UI**: toggle steps done, retitle/reword, add/delete steps, reorder — manual edits survive across refinements, and done steps stay done when a refinement keeps their id.
 - **Build node** — Cursor agent (agent mode) implements the approved plan, pushes a branch. The pending checklist is injected into the build prompt; the agent reports progress through the authenticated `claim_checklist_progress` tool (or the `build-progress` prose fence as a fallback) and steps get **checked off automatically** (you can also toggle them by hand in the Build panel, which shows live checklist progress). You review the **diff in-screen**, then approve → creates the **GitLab MR** and waits for it. If the push is rejected (pre-push/pre-receive hooks — type checks, lint gates), a commit-fix agent repairs the code in the build step and retries automatically; infra errors (network/auth) hand the step back with the error so you can fix it and click **Approve & create MR** again.
 - **Pipeline node (CI gate)** — after the MR exists (and after every later code change — comment resolutions, build refines), the gate ensures a pipeline exists for the MR head — **triggering one via the GitLab API** (merged-results MR pipeline, falling back to a branch pipeline) when the project doesn't start one on push (manual-CI setups) — then waits for green. While waiting it re-reads the MR **head** pipeline every cycle (so a superseded/retried pipeline never leaves the UI stuck on a stale status) and **plays manual jobs via the API** (bounded) so manual-gated projects don't sit until the timeout; a failed pipeline triggers a fix agent that reads the failed job logs and pushes to the MR branch, then the gate re-waits (bounded attempts). Pipeline failures reported by the webhook/poller also (re)trigger the gate directly. Review only starts once the pipeline is green — and every gate path (approval, re-check, retry, resolve re-gate) runs through the single `afterPipelineGate` chain (gate → review → resolve-if-open), so a green pipeline can never leave review stranded and resolve never double-runs for the same batch.
 - **Review node** — an agent reviews the MR diff and posts inline comments.
@@ -86,12 +86,10 @@ table).
 ```bash
 npm run db:seed                            # DEMO-142 SDLC flow, mid-review (idempotent)
 node scripts/seed-demo-flow.mjs --reset    # remove it
-node scripts/seed-branch-refine-demo.mjs   # DEMO-207 branch-scoped refine story
-node scripts/seed-branch-refine-demo.mjs --reset
 ```
 
-Seeds a flow with a realistic PRD, a 2-version plan history (v1 multi-branch →
-v2 refined single-branch), and the checklist mid-flight: two steps done by hand,
+Seeds a flow with a realistic PRD, a 2-version plan history (v1 draft →
+v2 refined), and the checklist mid-flight: two steps done by hand,
 two checked off by a trial build run, one added manually, and one superseded by
 the refine. Open the flow and try toggling / editing steps — it's all live data.
 
@@ -251,7 +249,7 @@ lib/                    strict OOP: one class per responsibility; services are p
                         validation → bounded feedback retry → typed events (no silent defaults).
       plan/             PlanNode — the unified plan turn envelope (PlanTurnOutput) parse/validate
                         (planContract.ts), artifact persistence + checklist sync (planStore.ts —
-                        writes artifacts.meta {feedback, steps, branches, refinedFrom, scopedRefine}),
+                        writes artifacts.meta {feedback, steps, refinedFrom}),
                         prompt assembly (planPrompt.ts);
                         schema.ts holds the Zod schemas.
       build/            BuildNode — build + chat-refine, build-progress application

@@ -7,6 +7,4 @@ export const ACTION_TYPES = {
   UPDATE_PLAN_STEPS: 'update_plan_steps',
 
   SELECT_VERSION: 'select_version',
-  TOGGLE_BRANCH: 'toggle_branch',
-  COLLAPSE_BRANCH: 'collapse_branch',
 } as const;

@@ -6,7 +6,6 @@ import { parseRow, parseRows } from "@/lib/db/ormRowHelpers";
 import { PROMPT_SOURCES } from "../../nodes/shared/nodeSharedExports";
 import type { FlowCtx, NodeDefinition, PromptPreviewParams, PromptSource } from "../../nodes/shared/nodeSharedExports";
 import { nodeRoles } from "../../nodes/shared/nodeRoles";
-import { NODE_KEYS } from "../../constants/nodeKeys";
 import { nodeRegistry } from "../../nodes/registry";
 import { prompts } from "../promptLibrary";
 import { sectionsOf } from "../promptLibrary/utils/sectionsOf";
@@ -25,7 +24,6 @@ export class PromptPreview {
     const nodeKey = url.searchParams.get("node") ?? "";
     const params: PromptPreviewParams = {
       instructions: url.searchParams.get("instructions") ?? undefined,
-      branch: url.searchParams.get("branch") ?? undefined,
     };
 
     const flowRow = await db.prisma.flow.findUnique({ where: { id: flowId } });
@@ -46,9 +44,6 @@ export class PromptPreview {
     const previewer = nodeRoles.promptPreviewerOf(def);
     const preview = previewer ? await previewer.previewPrompt(ctx, node, params) : null;
     if (!preview) {
-      if (params.branch && nodeKey === NODE_KEYS.PLAN) {
-        return this.bad(`branch "${params.branch}" not found in the latest plan — sub-plan refine unavailable`);
-      }
       return this.bad(`unsupported node: ${nodeKey}`);
     }
 

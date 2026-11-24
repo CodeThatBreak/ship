@@ -1,11 +1,23 @@
 "use client";
-import { Wrench } from "lucide-react";
+
+import { useState } from "react";
+import { Gauge, ListChecks, Wrench } from "lucide-react";
 import type { BranchRow } from "@/types/flow";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 import { Button } from "@/components/ui/button";
-import { PanelShell, GenericArtifact } from '../../shared';
-import { useNodePanel } from '../../context';
+import { TabsContent } from "@/components/ui/tabs";
+import { PanelShell } from "../../components/shell/PanelShell";
+import { useNodePanel } from "../../context";
+import { GenericArtifact } from "../../artifacts/components/GenericArtifact";
 import { PipelineStatusBody } from "../../artifacts/components/PipelineStatusBody";
+import { PIPELINE_TAB, type PipelineTab } from "../constants/tabs";
+import { PanelTabs } from "./tabs/PanelTabs";
+import { UsageArtifact } from "./tabs/UsageArtifact";
+
+const PIPELINE_TABS = [
+  { value: PIPELINE_TAB.RUNS, label: "Runs", icon: ListChecks },
+  { value: PIPELINE_TAB.USAGE, label: "Usage", icon: Gauge },
+] as const;
 
 /**
  * The CI-gate panel: the pipeline status, the fix runs the gate performed, and
@@ -17,6 +29,7 @@ import { PipelineStatusBody } from "../../artifacts/components/PipelineStatusBod
  */
 export default function PipelineView() {
   const { flow, node, action, model } = useNodePanel();
+  const [activeTab, setActiveTab] = useState<PipelineTab>(PIPELINE_TAB.RUNS);
   const output = node.output as { pipelineId?: number; status?: string; fixes?: number } | undefined;
   const hasMr = Boolean(flow.mrUrl) || (flow.branches ?? []).some((b: BranchRow) => b.mrUrl);
   const running = node.status === FLOW_STATUS.RUNNING;
@@ -43,15 +56,32 @@ export default function PipelineView() {
   ) : null;
 
   return (
-    <>
-      <PanelShell node={node} flow={flow} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
-        <PipelineStatusBody
-          green={node.status === FLOW_STATUS.DONE}
-          pipelineId={output?.pipelineId ?? null}
-          fixes={output?.fixes ?? 0}
-          history={<GenericArtifact node={node} kind="fix" icon={Wrench} empty="No pipeline fix runs yet." />}
-        />
-      </PanelShell>
-    </>
+    <PanelShell
+      node={node}
+      flow={flow}
+      hideCost
+      fullBleedContent
+      runningLabel="Waiting for a green pipeline — failures are fixed automatically…"
+      footer={footer}
+    >
+      <PanelTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        ariaLabel="Pipeline views"
+        tabs={PIPELINE_TABS}
+      >
+        <TabsContent value={PIPELINE_TAB.RUNS} className="px-5 pt-4 pb-4">
+          <PipelineStatusBody
+            green={node.status === FLOW_STATUS.DONE}
+            pipelineId={output?.pipelineId ?? null}
+            fixes={output?.fixes ?? 0}
+            history={<GenericArtifact node={node} kind="fix" icon={Wrench} empty="No pipeline fix runs yet." />}
+          />
+        </TabsContent>
+        <TabsContent value={PIPELINE_TAB.USAGE} className="px-5 pt-4 pb-4">
+          <UsageArtifact node={node} />
+        </TabsContent>
+      </PanelTabs>
+    </PanelShell>
   );
 }

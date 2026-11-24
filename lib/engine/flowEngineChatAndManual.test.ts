@@ -371,7 +371,6 @@ describe("retryNode — plan node chat replay", () => {
       turnUserMessage: "move step 2 below step 1",
       previousStatus: "awaiting_approval",
       planTurnKind: PlanTurnKind.Whole,
-      planThread: null,
       model: null,
     });
     await testRun(

@@ -138,7 +138,7 @@ describe("PromptPreview divergesReason — why the last run diverges (step 05)",
   });
 });
 
-describe("PromptPreview.previewFor — branch-scoped plan (CR-049)", () => {
+describe("PromptPreview.previewFor — other node previews", () => {
   it("the pipeline node preview assembles the fix-run body", async () => {
     const flowId = await seedFlow(10);
     await seedNode(flowId, NODE_KEYS.PIPELINE, NODE_KEYS.PIPELINE);
@@ -150,19 +150,5 @@ describe("PromptPreview.previewFor — branch-scoped plan (CR-049)", () => {
     if (!result.ok) throw new Error("expected an ok preview");
     expect(result.payload.label).toBe("Pipeline fix");
     expect(result.payload.engineRules).toContain("Fix the failures by committing and pushing fixes to the SAME branch");
-  });
-
-  it("unknown plan branch → 400 via previewPrompt on the plan def", async () => {
-    const flowId = await seedFlow(11);
-    await seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
-
-    const result = await promptPreview.previewFor(
-      flowId,
-      new URL(`http://fixture.local/?node=${encodeURIComponent(NODE_KEYS.PLAN)}&branch=missing-branch`),
-    );
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected the failure member");
-    expect(result.status).toBe(400);
-    expect(result.error).toContain("missing-branch");
   });
 });

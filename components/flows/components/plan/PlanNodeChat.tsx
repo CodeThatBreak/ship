@@ -1,44 +1,20 @@
 'use client';
-import { useMemo } from 'react';
 import ChatPanel from '@/components/chat/feed/ChatPanel';
 import ChatPanelSkeleton from '@/components/chat/feed/ChatPanelSkeleton';
 import { FLOW_ACTION } from '@/constants/flow';
 import { useNodePanel, useNodeChatBindings } from '../../panels';
 import { usePlanComposer } from './hooks/usePlanComposer/planComposerExports';
-import type { RefineBranch } from './types/planTypes';
-
-import { MAIN_THREAD_CONFIG, REFINE_HINT } from './constants/thread';
 
 /**
- * The plan node's chat rail (docs/architecture/plan-unified-turns.md): main
- * and branch conversation tabs; sends always go through `POST /chat` with
- * optional `thread`. The factory only renders this rail when
- * `capabilities.chatMode === 'plan'`.
+ * The plan node's chat rail (docs/architecture/plan-unified-turns.md): a single
+ * whole-plan conversation; sends always go through `POST /chat`. The factory
+ * only renders this rail when `capabilities.chatMode === 'plan'`.
  */
 export default function PlanNodeChat() {
   const { flow, node, events, modelChoice, setModelChoice, action, actionPending } = useNodePanel();
   const { busy, nodeKeysByNodeId, nodeStatusByNodeId } = useNodeChatBindings();
 
-  // Todo: Add a generic in usePaneNode
-  const branches = node.output?.branches as RefineBranch[] | null;
-  const threads = useMemo(() => {
-    // If there are not branches, we don't need to show threads
-    if (!branches?.length) return [];
-
-    return [
-      MAIN_THREAD_CONFIG,
-      ...branches.map(({ name }) => ({
-        id: name,
-        label: name,
-        emptyTitle: `Refine the “${name}” sub-plan`,
-        emptyDescription: REFINE_HINT,
-      })),
-    ];
-  }, [branches]);
-
-  const { activeThreadId, prompts, chatInputRef, onAction, isPromptsLoading } = usePlanComposer({
-    flowId: flow.id,
-  });
+  const { prompts, isPromptsLoading } = usePlanComposer({ flowId: flow.id });
 
   if (isPromptsLoading) {
     return <ChatPanelSkeleton />;
@@ -59,10 +35,6 @@ export default function PlanNodeChat() {
       setModelChoice={setModelChoice}
       onStop={() => action(FLOW_ACTION.CANCEL, { nodeKey: node.nodeKey })}
       stopDisabled={actionPending}
-      threads={threads}
-      activeThreadId={activeThreadId ?? undefined}
-      onAction={onAction}
-      chatInputRef={chatInputRef}
     />
   );
 }

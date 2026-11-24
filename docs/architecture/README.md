@@ -91,12 +91,12 @@ Explicitly state actions this node **does not** use (helps avoid resurrecting le
 ### 9. Agent contracts
 
 - Prompt template keys (`promptKeys`)
-- Response JSON schemas (run vs chat turn vs scoped refine if different)
+- Response JSON schemas (run vs chat turn if different)
 - Retry / refusal semantics (bounded retry, state guards)
 
 ### 10. Provenance and review UI (optional)
 
-How the panel shows diffs, version labels, and meta (`refinedFrom`, `scopedRefine`, etc.).
+How the panel shows diffs, version labels, and meta (`refinedFrom`, etc.).
 
 ### 11. Out of scope
 
@@ -122,9 +122,9 @@ Compact table: **Concern → primary file(s)** for navigation.
 | Doc | Topic |
 |-----|--------|
 | [start-node.md](./start-node.md) | Start — flow entry, task intake, handoff to plan |
-| [plan-node.md](./plan-node.md) | Plan — implementation plan, conversational refine, branch-scoped refine |
+| [plan-node.md](./plan-node.md) | Plan — implementation plan, conversational whole-plan refine |
 | [plan-unified-turns.md](./plan-unified-turns.md) | Plan chat / unified turns (current behavior) |
-| [build-node.md](./build-node.md) | Build — coding agent runs, diff approval, multi-branch builds |
+| [build-node.md](./build-node.md) | Build — coding agent runs, diff approval, MR branch facts |
 | [pipeline-node.md](./pipeline-node.md) | Pipeline — CI gate, bounded fix agent, manual re-check |
 | [review-node.md](./review-node.md) | Review — AI review of the MR diff, comment posting, thread inbox |
 | [resolve-node.md](./resolve-node.md) | Resolve — debounced comment fixes, thread closing, review loop |

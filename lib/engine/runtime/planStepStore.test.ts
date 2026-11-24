@@ -164,11 +164,10 @@ describe("PlanStepStore.replace (Task 27)", () => {
 });
 
 describe("parsePlanArtifactMeta (Task 27)", () => {
-  it("applies PlanBranch defaults (dependsOn) when reading artifact meta", () => {
+  it("applies PlanStep defaults when reading artifact meta", () => {
     const meta = parsePlanArtifactMeta({
-      steps: [{ title: "One", detail: "", files: [], branch: null }],
-      branches: [{ name: "auth", title: "Auth", scope: "login" }],
+      steps: [{ title: "One" }],
     });
-    expect(meta?.branches[0].dependsOn).toEqual([]);
+    expect(meta?.steps[0]).toMatchObject({ title: "One", detail: "", files: [], branch: null });
   });
 });

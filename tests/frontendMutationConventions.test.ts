@@ -24,11 +24,10 @@ describe("frontend mutation conventions (Task 15)", () => {
 
     await invalidateFlowPrompts(queryClient, "flow-1");
 
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(4);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(3);
     expect(calls).toContainEqual([...queryKeys.flows.promptScope("flow-1")]);
     expect(calls).toContainEqual([...queryKeys.flows.prompts("flow-1")]);
     expect(calls).toContainEqual(["flows", "node-prompt", "flow-1"]);
-    expect(calls).toContainEqual(["flows", "node-branch-prompt", "flow-1"]);
   });
 
   it("invalidateFlowDetail targets the cockpit snapshot key (CR-027)", async () => {

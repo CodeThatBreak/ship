@@ -8,8 +8,6 @@ import type { FlowCtx } from "../../runContext/types/flowContext";
 export interface PromptPreviewParams {
   /** extra developer instructions (review focus, resolve instructions, pipeline guidance) */
   instructions?: string;
-  /** branch-scoped sub-plan preview (plan node only — feeds the composer prefill) */
-  branch?: string;
 }
 
 /**
@@ -27,7 +25,7 @@ export interface NodePromptPreview {
 export interface ChatTurnOpts {
   /** per-run model override (the chat panel's pick) */
   model?: string;
-  /** branch-scoped thread ref (plan node only) */
+  /** optional thread ref for consumers that split the conversation into tabs */
   thread?: string | null;
   /**
    * The node's status BEFORE the engine's claim: `sendChat` claims the node

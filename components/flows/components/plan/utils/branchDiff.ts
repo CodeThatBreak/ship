@@ -1,7 +1,5 @@
 import type { Artifact } from "@/types/flow";
-import type { RefineBranch } from "../types/planTypes";
 import {
-  PLAN_TAB_CAPTION_BRANCH_PREFIX,
   PLAN_TAB_CAPTION_MAX,
   PLAN_TAB_CAPTION_REFINED_IN_CHAT,
   PLAN_REFINED_SOURCE_CHAT,
@@ -15,20 +13,11 @@ export interface DiffStep {
   files?: string[];
 }
 
-/** The same diff shape over any step record — the whole-plan rows carry
- *  their `branch` annotation through the identical comparator machinery. */
+/** The same diff shape over any step record. */
 export interface StepDiff<T extends DiffStep = DiffStep> {
   added: T[];
   removed: T[];
   changed: { id: string; before: T; after: T }[];
-}
-
-export type BranchStepDiff = StepDiff;
-
-/** The scoped-refine provenance record on a plan version's plan-meta. */
-interface ScopedRefineMeta {
-  branch?: unknown;
-  from?: unknown;
 }
 
 const contentEqual = (a: DiffStep, b: DiffStep) =>
@@ -82,18 +71,12 @@ export function diffBranchSteps<T extends DiffStep>(
 const isMeta = (m: unknown): m is Record<string, unknown> =>
   m != null && typeof m === "object";
 
-const scopedRefineOf = (meta: unknown): ScopedRefineMeta | undefined => {
-  if (!isMeta(meta)) return undefined;
-  const sr = meta.scopedRefine;
-  return sr != null && typeof sr === "object" ? (sr as ScopedRefineMeta) : undefined;
-};
-
 const filesOf = (files: unknown): string[] | undefined =>
   Array.isArray(files)
     ? files.filter((f): f is string => typeof f === "string")
     : undefined;
 
-/** The shared plan-meta step → step-record mapping for both pickers. */
+/** The shared plan-meta step → step-record mapping. */
 const diffStepOf = (s: Record<string, unknown>): WholeStep => ({
   id: typeof s.id === "string" ? s.id : "",
   title: typeof s.title === "string" ? s.title : "",
@@ -102,26 +85,13 @@ const diffStepOf = (s: Record<string, unknown>): WholeStep => ({
   branch: typeof s.branch === "string" ? s.branch : undefined,
 });
 
-/** Steps of one branch, read from a plan version's plan-meta `steps`. */
-export function pickBranchSteps(meta: unknown, branch: string): DiffStep[] {
-  const steps = isMeta(meta) ? meta.steps : undefined;
-  if (!Array.isArray(steps)) return [];
-  return steps
-    .filter(
-      (s): s is Record<string, unknown> =>
-        s != null && typeof s === "object" && s.branch === branch,
-    )
-    .map(diffStepOf);
-}
-
-/** A whole-plan step row: the DiffStep plus its branch annotation (§6a). */
+/** A whole-plan step row: the DiffStep plus its branch annotation. */
 export interface WholeStep extends DiffStep {
   /** the branch the step belongs to; undefined for main-plan steps */
   branch?: string;
 }
 
-/** Steps of the ENTIRE plan (all branches + main), keeping each step's
- *  `branch` on the record so banner rows can be annotated `branch: auth`. */
+/** Steps of the ENTIRE plan, keeping each step's `branch` annotation. */
 export function pickWholeSteps(meta: unknown): WholeStep[] {
   const steps = isMeta(meta) ? meta.steps : undefined;
   if (!Array.isArray(steps)) return [];
@@ -130,72 +100,6 @@ export function pickWholeSteps(meta: unknown): WholeStep[] {
       (s): s is Record<string, unknown> => s != null && typeof s === "object",
     )
     .map(diffStepOf);
-}
-
-/** The scoped-refine diff banner data (§6/§7.3): which branch changed between two versions. */
-export interface ScopedDiff {
-  branch: string;
-  from: number;
-  to: number;
-  diff: BranchStepDiff;
-}
-
-/**
- * Scoped-refine diff banner data (§6/§7.3): computed client-side from the two
- * artifact versions' steps — no server diff endpoint needed.
- */
-export function computeScopedDiff(plans: Artifact[]): ScopedDiff | null {
-  const latest = plans[plans.length - 1];
-  const sr = latest ? scopedRefineOf(latest.meta) : undefined;
-  if (!sr || typeof sr.branch !== "string" || !latest) return null;
-  const branch: string = sr.branch;
-  if (!isMeta(latest.meta) || latest.meta.steps == null) return null;
-  const prev = plans.find((a) => a.version === sr.from);
-  if (!prev || !prev.meta?.steps) return null;
-  const diff = diffBranchSteps(
-    pickBranchSteps(prev.meta, branch),
-    pickBranchSteps(latest.meta, branch),
-  );
-  if (!diff.added.length && !diff.removed.length && !diff.changed.length)
-    return null;
-  if (typeof sr.from !== "number") return null;
-  return { branch, from: sr.from, to: latest.version, diff };
-}
-
-/**
- * The latest version at which a branch's scoped markdown was written, from
- * artifact metas (scopedRefine provenance).
- */
-export function latestScopedRefineVersion(
-  arts: Artifact[],
-  branchName: string,
-): number {
-  let v = 0;
-  for (const a of arts) {
-    const sr = scopedRefineOf(a.meta);
-    if (sr?.branch === branchName && typeof sr.from === "number" && a.version > v)
-      v = a.version;
-  }
-  return v;
-}
-
-/**
- * Staleness (§8): the overview prose is only rewritten by full-plan refines;
- * a scoped refine makes its branch doc newer than the overview.
- */
-export function computeStaleBranches(
-  plans: Artifact[],
-  branches: RefineBranch[] | null,
-  overviewVersion: number,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  if (!branches || plans.length === 0) return out;
-  for (const b of branches) {
-    if (!b.markdown) continue;
-    const v = latestScopedRefineVersion(plans, b.name);
-    if (v > overviewVersion) out.set(b.name, v);
-  }
-  return out;
 }
 
 /** The `refinedFrom` provenance record on a plan version's plan-meta (§6c). */
@@ -236,7 +140,7 @@ export function computeWholePlanDiff(plans: Artifact[]): WholePlanDiff | null {
   if (!refinedFrom && !hasFeedback) return null;
   const fromVersion = latest.version - 1;
   const prev = plans.find((a) => a.version === fromVersion);
-  if (!prev || !prev.meta?.steps) return null;
+  if (!prev || !prev.meta || !isMeta(prev.meta) || prev.meta.steps == null) return null;
   const diff = diffBranchSteps(
     pickWholeSteps(prev.meta),
     pickWholeSteps(latest.meta),
@@ -247,7 +151,7 @@ export function computeWholePlanDiff(plans: Artifact[]): WholePlanDiff | null {
 }
 
 /** The version tab caption built from plan-meta (§6b): the feedback echo when
- *  recorded, else the scoped-refine branch, else the chat-refine provenance. */
+ *  recorded, else the chat-refine provenance. */
 export function planTabCaption(meta: unknown): string | undefined {
   if (!isMeta(meta)) return undefined;
   const feedback = typeof meta.feedback === "string" ? meta.feedback.trim() : "";
@@ -259,9 +163,6 @@ export function planTabCaption(meta: unknown): string | undefined {
         : compact;
     return `“${short}”`;
   }
-  const sr = scopedRefineOf(meta);
-  if (typeof sr?.branch === "string")
-    return `${PLAN_TAB_CAPTION_BRANCH_PREFIX}${sr.branch}`;
   const refinedFrom = refinedFromOf(meta);
   if (refinedFrom?.source === PLAN_REFINED_SOURCE_CHAT)
     return PLAN_TAB_CAPTION_REFINED_IN_CHAT;

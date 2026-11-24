@@ -21,7 +21,7 @@ export const readRunModel = (node: NodeRow): string | null => {
 /**
  * The whole-plan outcome: awaiting approval, the output blob pointing at the
  * fresh artifact version (the dispatching model echoed when present), and the
- * lifecycle event naming the version, branch count and step count.
+ * lifecycle event naming the version and step count.
  */
 export const planOutcome = (
   art: { id: string; version: number },
@@ -30,9 +30,6 @@ export const planOutcome = (
   text: string,
   model: string | null
 ): RunOutcome => {
-  const branchNote = planMeta.branches.length
-    ? ` (${planMeta.branches.length} branch${planMeta.branches.length > 1 ? 'es' : ''})`
-    : '';
   const stepNote = stepCount ? ` · ${stepCount} steps` : '';
   return {
     status: 'awaiting_approval',
@@ -40,10 +37,9 @@ export const planOutcome = (
       latestArtifact: art.id,
       version: art.version,
       ...(model != null ? { model } : {}),
-      ...(planMeta.branches.length ? { branches: planMeta.branches } : {}),
       ...(planMeta.steps.length ? { steps: planMeta.steps } : {}),
     },
-    event: `plan v${art.version} ready for review${branchNote}${stepNote}`,
+    event: `plan v${art.version} ready for review${stepNote}`,
     reply: text,
   };
 };

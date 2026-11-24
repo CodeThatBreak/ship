@@ -21,18 +21,17 @@ describe("schema-generated output directives (step 05 prompt audit)", () => {
     const expected = AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA);
     expect(contractBlock("plan").trim()).toBe(expected.trim());
     expect(contractBlock("plan_refine").trim()).toBe(expected.trim());
-    expect(contractBlock("plan_subplan_refine").trim()).toBe(expected.trim());
   });
 
   it("every plan-family template carries the generated directive in its composed prompt", () => {
     const directive = AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA).trim();
-    for (const key of ["plan", "plan_refine", "plan_subplan_refine"]) {
+    for (const key of ["plan", "plan_refine"]) {
       expect(composeTemplate(DEFAULT_PROMPT_TEMPLATES[key])).toContain(directive);
     }
   });
 
   it("the plan templates no longer hand-author the JSON-object prose", () => {
-    for (const key of ["plan", "plan_refine", "plan_subplan_refine"]) {
+    for (const key of ["plan", "plan_refine"]) {
       expect(composeTemplate(DEFAULT_PROMPT_TEMPLATES[key])).not.toContain(
         "Return a single JSON object ONLY",
       );

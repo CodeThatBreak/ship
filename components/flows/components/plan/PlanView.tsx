@@ -1,19 +1,16 @@
 'use client';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { Artifact } from '@/types/flow';
 import { useNodePanel } from '../../panels';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { FLOW_STATUS } from '@/constants/flow';
 
 import { PlanPanelHeader } from './components/PlanPanelHeader';
 import { PlanStatusPanel } from './components/PlanStatusPanel';
-import { PlanVersionTabs } from './components/PlanVersionTabs';
-import { WholeDiffBanner } from './components/WholeDiffBanner';
-import { PlanSection } from './components/PlanSection';
-import PlanSteps from './components/planSteps/PlanSteps';
+import { PlanViewTabs } from './components/PlanViewTabs';
 import { ACTION_TYPES } from './constants/action';
+import { PLAN_VIEW, type PlanView } from './constants/view';
 import { usePlanAction } from './hooks/usePlanAction';
 
 /**
@@ -24,13 +21,13 @@ import { usePlanAction } from './hooks/usePlanAction';
  * plan actions go through the `usePlanAction` mutation.
  *
  * The plan's runs and refinements are composer-driven — use the chat rail
- * (main or branch tab) to converse; branch changes send with `thread` set
- * to the branch name.
+ * to converse with the planning agent.
  */
 export default function PlanView() {
   const { flow, node } = useNodePanel();
   const plans = useMemo(() => node.artifacts.filter((a: Artifact) => a.kind === 'plan'), [node.artifacts]);
   const { state, onAction } = usePlanAction(flow.id);
+  const [activeView, setActiveView] = useState<PlanView>(PLAN_VIEW.PLAN);
 
   const { selectedId } = state;
 
@@ -52,15 +49,22 @@ export default function PlanView() {
     <div className="flex flex-col h-full min-h-0">
       <PlanPanelHeader node={node} />
 
-      <ScrollArea className="flex-1">
-        <div className="px-5 py-4 flex flex-col gap-4 h-full">
-          <PlanStatusPanel node={node} plans={plans} onAction={onAction} />
-          <PlanVersionTabs plans={plans} selectedId={current?.id ?? null} onSelection={onTabSelection} />
-          <WholeDiffBanner plans={plans} isCurrent={isCurrent} />
-          <PlanSection planId={current?.id} />
-          <PlanSteps steps={flow.planSteps ?? []} editable={awaiting} flowId={flow.id} />
-        </div>
-      </ScrollArea>
+      <div className="shrink-0 px-5 pt-4 empty:hidden">
+        <PlanStatusPanel node={node} plans={plans} onAction={onAction} />
+      </div>
+
+      <PlanViewTabs
+        activeView={activeView}
+        onViewChange={setActiveView}
+        node={node}
+        plans={plans}
+        planId={current?.id ?? null}
+        isCurrent={isCurrent}
+        onVersionSelect={onTabSelection}
+        steps={flow.planSteps ?? []}
+        editable={awaiting}
+        flowId={flow.id}
+      />
 
       {showApprove && (
         <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0">

@@ -11,7 +11,6 @@ import { describe, expect, it } from 'vitest';
 import type { Artifact } from '@/types/flow';
 import {
   diffBranchSteps,
-  computeScopedDiff,
   pickWholeSteps,
   computeWholePlanDiff,
   planTabCaption,
@@ -153,10 +152,6 @@ describe('planTabCaption', () => {
     expect(planTabCaption({ feedback: 'short note' })).toBe('“short note”');
   });
 
-  it('names scoped-refine branches', () => {
-    expect(planTabCaption({ scopedRefine: { branch: 'auth', from: 1 } })).toBe('branch refine: auth');
-  });
-
   it('labels chat refinements without feedback as refined in chat', () => {
     expect(planTabCaption({ refinedFrom: { version: 2, source: 'chat' } })).toBe('refined in chat');
   });
@@ -165,31 +160,5 @@ describe('planTabCaption', () => {
     expect(planTabCaption(undefined)).toBeUndefined();
     expect(planTabCaption({ steps: [] })).toBeUndefined();
     expect(planTabCaption({ refinedFrom: { version: 2, source: 'start' } })).toBeUndefined();
-  });
-});
-
-// ── scoped-refine behavior regression guard (unchanged consumers) ────────────
-
-describe('computeScopedDiff regression', () => {
-  it('still computes the scoped banner data for a branch refine', () => {
-    const scopedSet = [
-      art(1, { steps: V2 }),
-      art(2, {
-        steps: [...V2, step('s5', 'New billing row', 'billing')],
-        scopedRefine: { branch: 'billing', from: 1 },
-        refinedFrom: { version: 1, source: 'branch' },
-      }),
-    ];
-    const info = computeScopedDiff(scopedSet);
-    expect(info).toEqual({
-      branch: 'billing',
-      from: 1,
-      to: 2,
-      diff: {
-        added: [{ id: 's5', title: 'New billing row', detail: 'd', branch: 'billing' }],
-        removed: [],
-        changed: [],
-      },
-    });
   });
 });

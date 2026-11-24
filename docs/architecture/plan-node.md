@@ -3,16 +3,16 @@ node_key: plan
 kind: builtin
 status: current
 owner: engine+flows
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-24
 ---
 
 # Plan node
 
 ## Summary
 
-The plan node produces an **implementation plan**: a versioned markdown document, a checklist (`plan_steps`), and optional **branches** that scope per-branch refine turns. It is the flow’s primary planning step and the only node that uses **`chatMode: 'plan'`**: the chat composer is the single input surface—prefilled with the plan template before v1, then as a multi-thread conversation (main + one tab per branch).
+The plan node produces an **implementation plan**: a versioned markdown document and a checklist (`plan_steps`). It is the flow’s primary planning step and the only node that uses **`chatMode: 'plan'`**: the chat composer is the single input surface, prefilled with the plan template before v1.
 
-**All agent turns** (first plan, whole-plan changes, branch sub-plan changes) go through **`POST /api/flows/:id/chat`**. The engine’s **`PlanNode.turn()`** routes by artifact count and optional **`thread`** (branch name). Output uses one envelope: **`PlanTurnOutput`** (`reply` + optional `plan` | `subPlan` | `subPlanPatch`).
+**All agent turns** (first plan and whole-plan changes) go through **`POST /api/flows/:id/chat`**. The engine’s **`PlanNode.turn()`** routes by artifact presence only. Output uses one envelope: **`PlanTurnOutput`** (`reply` + optional `plan`).
 
 See **`docs/architecture/plan-unified-turns.md`** for the full contract.
 
@@ -23,7 +23,7 @@ See **`docs/architecture/plan-unified-turns.md`** for the full contract.
 | `refinable` | `true` | Chat rail is shown; messages invoke `PlanNode.turn()`. |
 | `chatMode` | `'plan'` | `resolveNodePanel` mounts **`PlanNodeChat`** instead of generic **`NodeChat`**. |
 | `promptNode` | `plan` | Prompt preview/read targets the plan template (`GET /prompt?node=plan`). |
-| `panelTitle` | `Implementation plan` | Chat rail heading when no thread tab label applies. |
+| `panelTitle` | `Implementation plan` | Chat rail heading. |
 
 Engine-only (not serialized to UI):
 
@@ -31,33 +31,25 @@ Engine-only (not serialized to UI):
 - `chainRole: plan` — SDLC chain resolves the plan role by key.
 - `resourceArtifacts: ['plan']` — plan artifact is the first-class resource for editor/approvals.
 
-## User-visible rules (three send modes)
+## User-visible rules (two send modes)
 
-Routing is **only** artifact presence + **`thread`** on the chat body. Same composer and same HTTP route for all three.
+Routing is **only** artifact presence. Same composer and same HTTP route for both.
 
 ### Rule 1 — No plan artifact yet (pre-publish)
 
 - **Condition:** Zero plan artifacts; node **`pending`** until a turn publishes **`plan`**.
-- **Send:** Main thread only (`thread` absent). Composer may open prefilled from `GET /prompts` / plan template; after send, normal per-thread drafts.
+- **Send:** Composer opens prefilled from `GET /prompts` / the plan template (`promptIsBody`).
 - **Outcome:** Reply-only → transcript only, node stays **`pending`**. **`plan`** present → artifact **v1**, checklist sync, **`awaiting_approval`**.
 
-### Rule 2 — Plan exists, main thread
+### Rule 2 — Plan exists (whole-plan refine)
 
-- **Condition:** Artifact exists; main tab (no branch **`thread`**).
-- **Send:** **`POST /chat`** on main conversation.
+- **Condition:** A plan artifact exists.
+- **Send:** **`POST /chat`** on the single conversation.
 - **Outcome:** Reply-only → no new version. **`plan`** → new artifact version, **`refinedFrom.source: 'chat'`**, checklist sync, approval re-gates as today.
-
-### Rule 3 — Plan exists, branch thread
-
-- **Condition:** Artifact exists; **`thread`** = branch name (must exist on latest plan meta).
-- **Send:** **`POST /chat`** from the branch tab (`PlanNodeChat` → **`ChatPanel`** passes **`activeThreadId`** as **`thread`**).
-- **Outcome:** Reply-only on that thread. **`subPlan`** or **`subPlanPatch`** → merge into that branch only, new version, **`scopedRefine`** + **`refinedFrom.source: 'branch'`**. Whole **`plan`** on branch turns is rejected by the engine.
-
-Invalid branch name → **400** on send.
 
 ### Checklist editing (unchanged)
 
-- **`PlanView`** — versions, master plan, branch cards, **`PlanSteps`** editor.
+- **`PlanView`** — versions, master plan, **`PlanSteps`** editor.
 - Actions: **`update_plan_steps`**, **`set_plan_step`**, version tab selection (local UI).
 
 ### Approve
@@ -68,8 +60,7 @@ Invalid branch name → **400** on send.
 flowchart LR
   subgraph chat [POST /chat only]
     A[pending no artifact] -->|reply or plan v1| B[awaiting_approval]
-    B -->|main thread reply or plan| B
-    B -->|branch thread subPlan or patch| B
+    B -->|reply or plan| B
   end
   subgraph ship [Approve]
     B -->|approve_plan| C[approved → build]
@@ -87,17 +78,14 @@ flowchart LR
 
 ### Panel (`PlanView`)
 
-- **`usePlanAction`** — approve, retry, cancel, checklist; **`useReducer`** for version/branch UI.
-- Branch sub-plans are **read-only in the panel**; changes happen on the matching **branch chat tab** (no panel Refine action).
+- **`usePlanAction`** — approve, retry, cancel, checklist; **`useReducer`** for version UI.
 
 ### Chat rail (`PlanNodeChat` + hooks)
 
 | Piece | Role |
 |-------|------|
-| **`usePlanComposer`** | Thread id, prompt prefill source, per-thread draft stash via **`usePlanChatAction`**. |
-| **`ChatPanel`** | Feed filtered by **`activeThreadId`**; **`useChatComposer`** → **`POST /chat`** with **`thread`** when on a branch tab (non-main tab id). |
-
-**Thread tabs:** When `node.output.branches` exists, tabs = main + one per branch name. Branch messages use `messages.thread === branchName`; main thread shows unthreaded messages.
+| **`usePlanComposer`** | Prompt prefill source via **`usePlanChatAction`** (one bulk `GET /prompts`). |
+| **`ChatPanel`** | Single feed; **`useChatComposer`** → **`POST /chat`**. |
 
 ### Async states
 
@@ -105,22 +93,22 @@ flowchart LR
 |-------|----------|
 | Prompt load | `isPromptsLoading` from bulk `GET /prompts` before showing the rail. |
 | Chat sending | `useChatComposer` pending + flow `busy` / `current_node`. |
-| Panel plan content | **`MasterPlanLoader`** / empty hints when no artifact selected. |
+| Panel plan content | Empty hints when no artifact selected. |
 
 ### Key files
 
 - `components/flows/components/plan/PlanView.tsx`
 - `components/flows/components/plan/PlanNodeChat.tsx`
 - `components/flows/components/plan/hooks/usePlanComposer/`
-- `components/chat/ChatPanel.tsx`, `hooks/use-flow-chat.ts`
+- `components/chat/feed/ChatPanel.tsx`, `hooks/useFlowChat.ts`
 
-## Backend architecture (shipped Phase 1+)
+## Backend architecture
 
 ### Node class
 
-**`PlanNode.turn(ctx, content, { model?, thread? })`** — single entry from **`sendChat`**. Dispatches pre-publish, whole, or branch turns; **`PlanOutputContract.applyTurnResult`** parses **`PlanTurnOutput`**.
+**`PlanNode.turn(ctx, content, { model?, previousStatus? })`** — single entry from **`sendChat`**. Dispatches pre-publish or whole turns; **`PlanOutputContract.applyTurnResult`** parses **`PlanTurnOutput`**.
 
-Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**, **`PlanOutputContract`**, **`BranchRefinement`** (merge + patch), **`PlanAgentSessions`** (`branchAgents` on node output).
+Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**, **`PlanOutputContract`**.
 
 ### Approval
 
@@ -128,10 +116,10 @@ Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**
 
 ### Key files
 
-- `lib/engine/nodes/kinds/plan/plan-node.ts`
-- `lib/engine/nodes/kinds/plan/plan-contract.ts`
-- `lib/engine/nodes/kinds/plan/schema.ts` — **`PlanTurnOutput`**, **`SubPlanPatch`**
-- `lib/engine/flow-engine.ts` — **`sendChat`**, **`approvePlan`**
+- `lib/engine/nodes/kinds/plan/planNode.ts`
+- `lib/engine/nodes/kinds/plan/planContract.ts`
+- `lib/engine/nodes/kinds/plan/schema.ts` — **`PlanTurnOutput`**
+- `lib/engine/flowEngine/flowEngine.ts` — **`sendChat`**, **`approvePlan`**
 
 ## API surface
 
@@ -141,7 +129,7 @@ Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**
 |-------|---------|
 | `GET /api/flows/:id/prompt?node=plan` | Plan template body (composer prefill) |
 | `GET /api/flows/:id/prompts` | Bulk prompt bodies (`useFetchAllNodePrompt`) |
-| **`POST /api/flows/:id/chat`** | **All plan agent turns** — body `{ nodeKey, content, model?, thread? }` |
+| **`POST /api/flows/:id/chat`** | **All plan agent turns** — body `{ nodeKey, content, model? }` |
 | `POST /api/flows/:id/action` | Checklist, approve, retry/cancel (not plan generation) |
 
 ### Flow actions (plan-relevant)
@@ -156,19 +144,18 @@ Collaborators: **`PlanStore`**, **`PlanContextBlocks`**, **`PlanPromptBuilder`**
 
 ## Data model (high level)
 
-- **Artifacts:** kind `plan`; meta includes `steps`, `branches`, **`refinedFrom`**, **`scopedRefine`**, `feedback`.
-- **Output JSON:** `latestArtifact`, `version`, optional **`branches`**, **`branchAgents`** (per-branch harness ids).
+- **Artifacts:** kind `plan`; meta includes `steps`, **`refinedFrom`**, `feedback`.
+- **Output JSON:** `latestArtifact`, `version`, optional `steps`, `model`.
 - **`plan_steps`** synced on each published plan meta.
 
 ## Provenance and review UI
 
-- **`WholeDiffBanner`** / branch badges: version diffs from `branchDiff` helpers.
-- **`refinedFrom.source`**: `start` | `chat` | `branch`.
+- **`WholeDiffBanner`**: version diffs from `branchDiff.ts` helpers over the artifact meta's `steps`.
+- **`refinedFrom.source`**: `start` | `chat`.
 
 ## Related docs
 
 - **`docs/architecture/plan-unified-turns.md`** — canonical turn rules and envelope.
-- Superseded for send routing: `docs/plan-conversation-refine.md`, `docs/branch-scoped-refine.md` (historical).
 
 ## Out of scope
 

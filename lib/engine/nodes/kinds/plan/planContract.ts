@@ -13,7 +13,6 @@ import type { NodeSupport } from '../../shared/nodeSupport';
 import type { NodeRow } from '../../../../db/rows';
 import { FLOW_STATUS } from '../../../../../constants/flow';
 import { PlanApplyRefusedError } from './planApplyRefusedError';
-import { PlanScopedOutcome } from './planScopedOutcome';
 import { planBodyDiverged } from './utils/planBodyDiverged';
 import { planOutcome, readRunModel } from './utils/planOutcome';
 import {
@@ -34,19 +33,16 @@ import {
 } from './schema';
 import type { PlanStore } from './planStore';
 import type { PlanRunArgs } from './types/planTypeExports';
-import type { ScopedRefine } from './types/planTypeExports';
 import { PlanTurnKind } from './constants/planTurn';
 
 /**
  * The plan output contract: validate the agent's plan-mode response against
  * the plan schemas and apply what it implies — the whole-plan publish path
  * (version publish + checklist sync via `PlanStore.persistPlan`, then awaiting
- * approval) and the branch-scoped refine path (delegated to
- * {@link PlanScopedOutcome}) — plus the ONE bounded self-heal retry when a
- * response misses the contract. The artifact is saved HERE, not via
- * `outcome.artifact`: the output blob derives from the just-saved artifact row
- * (id, version, scopedRefine provenance) — `applyOutcome` persists
- * the rest.
+ * approval) — plus the ONE bounded self-heal retry when a response misses the
+ * contract. The artifact is saved HERE, not via `outcome.artifact`: the output
+ * blob derives from the just-saved artifact row (id, version) — `applyOutcome`
+ * persists the rest.
  *
  * Invariant: a whole-plan turn is applied only while THIS turn still owns the
  * node's claim (§3b guard, fenced on OWNERSHIP) — a cancelled/retried
@@ -55,7 +51,6 @@ import { PlanTurnKind } from './constants/planTurn';
  */
 export class PlanOutputContract {
   private readonly pipeline: AgentOutputPipeline;
-  private readonly scoped: PlanScopedOutcome;
 
   constructor(
     private readonly support: NodeSupport,
@@ -64,7 +59,6 @@ export class PlanOutputContract {
     private readonly label: string
   ) {
     this.pipeline = new AgentOutputPipeline(support);
-    this.scoped = new PlanScopedOutcome(support);
   }
 
   /**
@@ -86,8 +80,7 @@ export class PlanOutputContract {
 
   /**
    * Unified turn parse + apply: `PlanTurnOutput` envelope, then plan |
-   * subPlan | subPlanPatch | reply-only. Throws {@link AgentOutputError} on
-   * contract violations (including whole `plan` on branch turns) and
+   * reply-only. Throws {@link AgentOutputError} on contract violations and
    * {@link PlanApplyRefusedError} when the §3b apply guard refuses.
    */
   async applyTurnResult(
@@ -95,114 +88,56 @@ export class PlanOutputContract {
     node: NodeRow,
     turnKind: PlanTurnKind,
     userMessage: string,
-    text: string,
-    scoped: ScopedRefine | null
+    text: string
   ): Promise<{ reply: string; outcome: RunOutcome | null }> {
     const envelope = this.parseTurnEnvelope(text);
     const reply = envelope.reply;
     const hasPlan = envelope.plan != null;
-    const hasSub = envelope.subPlan != null;
-    const hasPatch = envelope.subPlanPatch != null;
 
-    if (!hasPlan && !hasSub && !hasPatch) {
+    if (!hasPlan) {
       return { reply, outcome: null };
     }
 
-    if (turnKind === PlanTurnKind.Branch) {
-      if (hasPlan) {
-        throw new AgentOutputError({
-          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-          label: this.label,
-          message: `${this.label}: branch turns must not include a whole "plan" — use subPlan or subPlanPatch only`,
-          issues: [{ path: 'plan', message: 'forbidden on branch turns — emit subPlan or subPlanPatch instead' }],
-          response: text,
-        });
-      }
-      if (!scoped) {
-        throw new Error('branch turn apply requires scoped refine context');
-      }
-      if (hasSub) {
-        const subPlan = envelope.subPlan;
-        if (subPlan == null) {
-          throw new AgentOutputError({
-            code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-            label: this.label,
-            message: `${this.label}: branch turn missing subPlan payload`,
-            issues: [{ path: 'subPlan', message: 'required on branch turns' }],
-            response: text,
-          });
-        }
-        return { reply, outcome: await this.scoped.subPlanOutcome(ctx, node, scoped, subPlan) };
-      }
-      if (hasPatch) {
-        const subPlanPatch = envelope.subPlanPatch;
-        if (subPlanPatch == null) {
-          throw new AgentOutputError({
-            code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-            label: this.label,
-            message: `${this.label}: branch turn missing subPlanPatch payload`,
-            issues: [{ path: 'subPlanPatch', message: 'required on branch turns' }],
-            response: text,
-          });
-        }
-        return { reply, outcome: await this.scoped.patchOutcome(ctx, node, scoped, subPlanPatch) };
-      }
+    const nodeNow = await this.support.nodeByKey(ctx.flow.id, node.nodeKey);
+    const status = nodeNow.status ?? '';
+    // §3b apply guard, fenced on OWNERSHIP (docs/coding-patterns.md §3.6,
+    // not the raw status string): `sendChat` claims the node (running + a
+    // fresh attempt token) before this turn dispatches, so the live row
+    // legitimately reads `running` for the turn's OWN claim — the normal
+    // path. Refuse only when the claim moved on (a different or cleared
+    // attempt owns the node now — cancelled/retried mid-turn) or the node
+    // sits in a non-allowed status (approved, done, …) — the conservative
+    // default, never a silent mid-run mutation.
+    const ownsClaim =
+      status === FLOW_STATUS.RUNNING &&
+      node.attemptId != null &&
+      nodeNow.attemptId === node.attemptId;
+    if (!ownsClaim && !PLAN_APPLY_ALLOWED.has(status)) {
+      await this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
+      throw new PlanApplyRefusedError(planRefusedReply(reply, planRefusalReason(status)));
     }
-
-    if (hasSub || hasPatch) {
+    const prevVersion = (await this.store.latestPlan(ctx.flow.id))?.art.version ?? 0;
+    const refined: RefinedFrom | undefined =
+      turnKind === PlanTurnKind.PrePublish
+        ? planBodyDiverged(userMessage)
+          ? { version: prevVersion, source: REFINED_FROM_SOURCE.START }
+          : undefined
+        : { version: prevVersion, source: REFINED_FROM_SOURCE.CHAT };
+    const plan = envelope.plan;
+    if (plan == null) {
       throw new AgentOutputError({
         code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
         label: this.label,
-        message: `${this.label}: whole-plan turns must use "plan", not subPlan/subPlanPatch`,
-        issues: [{ path: hasSub ? 'subPlan' : 'subPlanPatch', message: 'forbidden on whole/pre-publish turns' }],
+        message: `${this.label}: whole-plan turn missing plan payload`,
+        issues: [{ path: 'plan', message: 'required on whole/pre-publish turns' }],
         response: text,
       });
     }
-
-    if (hasPlan) {
-      const nodeNow = await this.support.nodeByKey(ctx.flow.id, node.nodeKey);
-      const status = nodeNow.status ?? '';
-      // §3b apply guard, fenced on OWNERSHIP (docs/coding-patterns.md §3.6,
-      // not the raw status string): `sendChat` claims the node (running + a
-      // fresh attempt token) before this turn dispatches, so the live row
-      // legitimately reads `running` for the turn's OWN claim — the normal
-      // path. Refuse only when the claim moved on (a different or cleared
-      // attempt owns the node now — cancelled/retried mid-turn) or the node
-      // sits in a non-allowed status (approved, done, …) — the conservative
-      // default, never a silent mid-run mutation.
-      const ownsClaim =
-        status === FLOW_STATUS.RUNNING &&
-        node.attemptId != null &&
-        nodeNow.attemptId === node.attemptId;
-      if (!ownsClaim && !PLAN_APPLY_ALLOWED.has(status)) {
-        await this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
-        throw new PlanApplyRefusedError(planRefusedReply(reply, planRefusalReason(status)));
-      }
-      const prevVersion = (await this.store.latestPlan(ctx.flow.id))?.art.version ?? 0;
-      const refined: RefinedFrom | undefined =
-        turnKind === 'pre-publish'
-          ? planBodyDiverged(userMessage)
-            ? { version: prevVersion, source: REFINED_FROM_SOURCE.START }
-            : undefined
-          : { version: prevVersion, source: REFINED_FROM_SOURCE.CHAT };
-      const plan = envelope.plan;
-      if (plan == null) {
-        throw new AgentOutputError({
-          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-          label: this.label,
-          message: `${this.label}: whole-plan turn missing plan payload`,
-          issues: [{ path: 'plan', message: 'required on whole/pre-publish turns' }],
-          response: text,
-        });
-      }
-      const outcome = await this.applyValidatedPlan(ctx, nodeNow, plan, {
-        userMessage,
-        refined,
-      });
-      return { reply, outcome };
-    }
-
-    return { reply, outcome: null };
+    const outcome = await this.applyValidatedPlan(ctx, nodeNow, plan, {
+      userMessage,
+      refined,
+    });
+    return { reply, outcome };
   }
 
   /** Parses the unified turn envelope (`PlanTurnOutput`). */
@@ -215,11 +150,8 @@ export class PlanOutputContract {
    * (step 05) plus turn-kind-specific guidance, re-stating `PlanTurnOutput`
    * through the generated directive.
    */
-  turnRetryPrompt(failure: AgentOutputError, turnKind: PlanTurnKind): string {
-    const branch = turnKind === 'branch';
-    const extra = branch
-      ? 'Branch turns: a single JSON object with "reply" and optionally "subPlanPatch" (preferred) or "subPlan" — never include "plan" on branch turns.'
-      : 'Whole/pre-publish turns: a single JSON object with "reply" and optionally "plan" when changing the plan document.';
+  turnRetryPrompt(failure: AgentOutputError): string {
+    const extra = 'Whole/pre-publish turns: a single JSON object with "reply" and optionally "plan" when changing the plan document.';
     return TemplateRenderer.compose(retryFeedbackBody(failure, { extraInstruction: extra }))
       .addBlankLine()
       .addBlankLine()
@@ -233,7 +165,6 @@ export class PlanOutputContract {
     turnKind: PlanTurnKind,
     userMessage: string,
     text: string,
-    scoped: ScopedRefine | null,
     args: PlanRunArgs
   ): Promise<{ reply: string; outcome: RunOutcome | null }> {
     try {
@@ -248,7 +179,7 @@ export class PlanOutputContract {
         budget: args.retryBudget,
         validate: async (t) => {
           try {
-            return await this.applyTurnResult(ctx, node, turnKind, userMessage, t, scoped);
+            return await this.applyTurnResult(ctx, node, turnKind, userMessage, t);
           } catch (e: unknown) {
             if (e instanceof PlanApplyRefusedError) {
               return { reply: e.reply, outcome: null };
@@ -256,7 +187,7 @@ export class PlanOutputContract {
             throw e;
           }
         },
-        retryPrompt: (failure) => this.turnRetryPrompt(failure, turnKind),
+        retryPrompt: (failure) => this.turnRetryPrompt(failure),
         executeRetry: async (prompt) => {
           const retry = await this.runner.executeRun(
             ctx,
@@ -297,7 +228,7 @@ export class PlanOutputContract {
     plan: PlanResponse,
     opts: { userMessage: string; refined?: RefinedFrom }
   ): Promise<RunOutcome> {
-    const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
+    const planMeta: PlanMeta = { steps: withStepIds(plan.steps) };
     const { art, stepCount } = await this.store.persistPlan({
       ctx,
       node,
@@ -318,18 +249,13 @@ export class PlanOutputContract {
     const turnKind = input.planTurnKind;
     if (!turnKind) return null;
 
-    const branch = input.planThread?.trim() || null;
-    const scoped = branch ? await this.store.scopedRefine(ctx.flow.id, branch) : null;
-    if (branch && !scoped) return null;
-
     try {
       const applied = await this.applyTurnResult(
         ctx,
         node,
         turnKind,
         input.turnUserMessage ?? '',
-        result.result ?? '',
-        scoped
+        result.result ?? ''
       );
       return applied.outcome;
     } catch {

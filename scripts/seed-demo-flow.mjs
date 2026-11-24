@@ -243,17 +243,17 @@ function savePlanArtifact(content, meta, version, m) {
       status: version === 2 ? "draft" : "superseded",
       feedback:
         version === 2
-          ? "Single branch — the pieces are too coupled to split. And the acceptance criteria require tests, add a step for them."
+          ? "The pieces are tightly coupled — keep them in one cohesive change. And the acceptance criteria require tests, add a step for them."
           : null,
       createdAt: minsAgo(m),
     },
   }).then((a) => a.id);
 }
 
-// ── act 1: first draft, multi-branch ─────────────────────────────────────────
+// ── act 1: first draft ───────────────────────────────────────────────────────
 const artV1 = await savePlanArtifact(PLAN_V1, metaV1, 1, 47);
 await syncStepsFromPlan(flowId, artV1, metaV1.steps);
-await ev("plan v1 ready for review (2 branches · 7 steps)", 47);
+await ev("plan v1 ready for review (7 steps)", 47);
 
 // dev checked off the two "obvious" ones by hand while reading v1
 for (const mid of ["s1", "s2"]) {

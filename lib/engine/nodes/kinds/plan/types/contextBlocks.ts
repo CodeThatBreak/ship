@@ -2,14 +2,12 @@ import "server-only";
 
 // ── context block registry (§4) ──────────────────────────────────────────────
 
-export type ContextBlockId = 'task' | 'contract' | 'current' | 'branches' | 'edits';
+export type ContextBlockId = 'task' | 'edits';
 
 export interface ContextBlockSpec {
   id: ContextBlockId;
   label: string;
   description: string;
-  /** default-on for scoped (branch) refines */
-  scopedDefault: boolean;
   /** default-on for whole-plan refines */
   wholeDefault: boolean;
   /** the engine always includes this block — the UI shows it locked */

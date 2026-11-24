@@ -1,12 +1,11 @@
 /**
- * PlanStore — the latest-plan/meta parsing, the scoped-refine bundle, and the
+ * PlanStore — the latest-plan/meta parsing, the current-steps text, and the
  * plan-version publish path.
  *
  * Shared dockerized test database (AGENTS.md §1 — truncated per file); class instances get a stub
  * NodeSupport so the store's calls are observable without touching real rows
  * (the plan_steps sync itself is covered by the runtime's own tests).
  */
-import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from 'vitest';
 import { assignTestDatabase, resetTestDatabase } from '../../../../../tests/helpers/testDatabase';
 
@@ -16,7 +15,7 @@ beforeAll(resetTestDatabase);
 
 await import('../../registry');
 const { PlanStore } = await import('./planStore');
-import type { PlanBranch, PlanMeta, PlanStep } from './schema';
+import type { PlanMeta, PlanStep } from './schema';
 import type { FlowCtx, NodeSupport } from '../../shared/nodeSharedExports';
 import type { NodeRow } from '../../../../db/rows';
 
@@ -26,15 +25,6 @@ const step = (id: string, title: string, branch: string | null = null): PlanStep
   detail: 'd',
   files: ['f.ts'],
   branch,
-});
-
-const branch = (name: string, dependsOn: string[] = [], scope = ''): PlanBranch => ({
-  name,
-  title: name,
-  scope,
-  files: [],
-  steps: [],
-  dependsOn,
 });
 
 /** A stub support: `latestArtifact` is `row`; every other method is never called. */
@@ -66,71 +56,27 @@ describe('PlanStore.latestPlan — parse + degrade', () => {
     expect(await new PlanStore(supportWith(null)).latestPlan('flow-1')).toBeNull();
   });
 
-  it('parses steps + branches from valid meta', async () => {
-    const latest = await new PlanStore(supportWith(artRow({ steps: [step('s1', 'A', 'b')], branches: [branch('b')] }))).latestPlan('flow-1');
+  it('parses steps from valid meta', async () => {
+    const latest = await new PlanStore(supportWith(artRow({ steps: [step('s1', 'A')] }))).latestPlan('flow-1');
     expect(latest).not.toBeNull();
     expect(latest?.meta.steps).toHaveLength(1);
-    expect(latest?.meta.branches).toHaveLength(1);
     expect(latest?.art).toEqual({ id: 'art_1', version: 3, content: '# Plan document' });
   });
 
-  it('degrades garbage meta to an empty (branchless) plan — never throws', async () => {
+  it('degrades garbage meta to an empty plan — never throws', async () => {
     const store = new PlanStore(supportWith(artRow('{not json')));
     const latest = await store.latestPlan('flow-1');
     expect(latest).not.toBeNull();
-    expect(latest?.meta).toEqual({ steps: [], branches: [] });
+    expect(latest?.meta).toEqual({ steps: [] });
   });
 
-  it('parses branches-only meta with empty steps (Zod defaults)', async () => {
-    const stores = new PlanStore(supportWith(artRow({ branches: [branch('b')] })));
-    expect((await stores.latestPlan('flow-1'))?.meta).toEqual({ steps: [], branches: [branch('b')] });
-    const branchless = new PlanStore(supportWith(artRow({ steps: [step('s1', 'A')] })));
-    expect((await branchless.latestPlan('flow-1'))?.meta.branches).toEqual([]);
+  it('parses steps-only meta (Zod defaults)', async () => {
+    const store = new PlanStore(supportWith(artRow({ steps: [step('s1', 'A')] })));
+    expect((await store.latestPlan('flow-1'))?.meta).toEqual({ steps: [step('s1', 'A')] });
   });
 });
 
-describe('PlanStore.scopedRefine — the ref-count bundle or null', () => {
-  const full = () =>
-    new PlanStore(
-      supportWith(artRow({ steps: [step('s1', 'A', 'auth'), step('s2', 'B', 'billing')], branches: [branch('auth'), branch('billing', [], 's')] }))
-    );
-
-
-  it('null with no plan artifact', async () => {
-    expect(await new PlanStore(supportWith(null)).scopedRefine('flow-1', 'auth')).toBeNull();
-  });
-
-  it('null for an unknown branch name', async () => {
-    expect(await full().scopedRefine('flow-1', 'ghost')).toBeNull();
-  });
-
-  it('resolves the branch + its rows from the LATEST plan only', async () => {
-    // real plan_steps rows in the isolated DB — liveRows reads the real table
-    const { db } = await import('../../../../db/app');
-    await testRun(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ('task_1','generic','TST-1','plan store','open','task','P2')`
-    );
-    await testRun(
-      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ('flow-1','task_1','plan store','active',$1,$2)`,
-      db.now(), db.now()
-    );
-    await testRun(
-      `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,created_at,updated_at)
-       VALUES ('r1','flow-1',NULL,'s1',0,'A',NULL,'[]','auth','pending','agent',NULL,$1,$2)`,
-      db.now(), db.now()
-    );
-    await testRun(
-      `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,created_at,updated_at)
-       VALUES ('r2','flow-1',NULL,'s2',1,'B',NULL,'[]','billing','pending','agent',NULL,$1,$2)`,
-      db.now(), db.now()
-    );
-    const scoped = await full().scopedRefine('flow-1', 'auth');
-    expect(scoped?.branch.name).toBe('auth');
-    expect(scoped?.liveRows.map(s => s.title)).toEqual(['A']);
-  });
-});
-
-describe('PlanStore.stepsText / dependencySummaries', () => {
+describe('PlanStore.stepsText — compact live rows', () => {
   it('renders live rows compactly — "(none yet)" when empty', () => {
     const store = new PlanStore(supportWith(null));
     expect(store.stepsText([])).toBe('(none yet)');
@@ -138,23 +84,12 @@ describe('PlanStore.stepsText / dependencySummaries', () => {
       '- s1: A — do (1 files)'
     );
   });
-
-  it('renders sibling dependency summaries (or an empty string with none)', () => {
-    const latest = {
-      art: { id: 'a', version: 1, content: '' },
-      meta: { steps: [], branches: [branch('auth', [], 'logins'), branch('billing', ['auth'], 'invoices')] },
-      rawMeta: {},
-    };
-    const store = new PlanStore(supportWith(null));
-    expect(store.dependencySummaries(latest, branch('billing', ['auth']))).toBe('- `auth` (auth): logins');
-    expect(store.dependencySummaries(latest, branch('auth'))).toBe('');
-  });
 });
 
 describe('PlanStore.persistPlan — the artifact meta rides every version', () => {
-  const meta = (): PlanMeta => ({ steps: [], branches: [branch('auth')] });
+  const meta = (): PlanMeta => ({ steps: [] });
 
-  it('publishes feedback, branches and steps', async () => {
+  it('publishes feedback and steps', async () => {
     savedMetas = [];
     await new PlanStore(supportWith(null)).persistPlan({
       ctx,
@@ -163,6 +98,6 @@ describe('PlanStore.persistPlan — the artifact meta rides every version', () =
       text: '# plan',
       planMeta: meta(),
     });
-    expect(metaOf(0)).toEqual({ feedback: 'fb', branches: [branch('auth')], steps: [] });
+    expect(metaOf(0)).toEqual({ feedback: 'fb', steps: [] });
   });
 });

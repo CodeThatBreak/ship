@@ -1,7 +1,7 @@
 /**
- * PlanPromptBuilder — the conversation prompt, the scoped template vars, and
- * the verbatim-prompt shortcut of the whole prompt. All collaborators are
- * stubs — no DB dependency beyond module import (isolated temp DB, §1).
+ * PlanPromptBuilder — the conversation prompt, the follow-up prompt and the
+ * verbatim-prompt shortcut of the whole prompt. All collaborators are stubs —
+ * no DB dependency beyond module import (isolated temp DB, §1).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,12 +16,10 @@ const { planBodyDiverged } = await import('./utils/planBodyDiverged');
 const { DEFAULT_PROMPT_TEMPLATES } = await import('../../../prompts/promptDefaults');
 const { AgentOutputError } = await import('../../shared/agent/outputError/outputErrorExports');
 const { PLAN_TURN_OUTPUT_JSON_SCHEMA } = await import('./schema');
-import type { PlanBranch, PlanStep, PlanInput } from './schema';
+import type { PlanInput } from './schema';
 import type { NodeRow } from '../../../../db/rows';
 import type { FlowCtx, FlowContextHelper } from '../../shared/nodeSharedExports';
 import type { PlanContextBlocks } from './planContext';
-import type { PlanStore } from './planStore';
-import type { ScopedRefine } from './types/planTypeExports';
 
 const nodeWith = (agentId: string | null) => ({ agentId }) as unknown as NodeRow;
 
@@ -32,57 +30,10 @@ const makeBuilder = () => {
     execMode: () => 'cloud',
   } as unknown as FlowContextHelper;
   const context = { assemble: async () => 'CTX' } as unknown as PlanContextBlocks;
-  const store = {
-    stepsText: (rows: { title: string }[]) => rows.map(r => r.title).join('\n'),
-    dependencySummaries: (_latest: unknown, b: { dependsOn: string[] }) =>
-      b.dependsOn.includes('b2') ? '- `b2` (B2): s2b' : '',
-  } as unknown as PlanStore;
-  return new PlanPromptBuilder(ctxHelper, context, store);
+  return new PlanPromptBuilder(ctxHelper, context);
 };
 
 const ctx = { flow: { id: 'flow-1' }, task: { key: 'T-1' } } as unknown as FlowCtx;
-
-const branchStep: PlanStep = { id: 's1', title: 'Live', detail: '', files: [], branch: 'auth' };
-const authBranch: PlanBranch = {
-  name: 'auth',
-  title: 'Auth',
-  scope: 'logins',
-  files: ['a.ts'],
-  steps: [],
-  dependsOn: ['b2'],
-};
-const scoped = (): ScopedRefine => ({
-  latest: { art: { id: 'a', version: 2, content: '' }, meta: { steps: [], branches: [authBranch] }, rawMeta: {} },
-  branch: authBranch,
-  liveRows: [branchStep as never],
-});
-
-describe('PlanPromptBuilder.scopedVars — built from the ref branch only', () => {
-  it('fills branch, scope, files, dependencies, sub-plan seed and live steps', async () => {
-    const vars = await makeBuilder().scopedVars(ctx, scoped(), '', []);
-    expect(vars.branch).toBe('auth');
-    expect(vars.scope).toBe('logins');
-    expect(vars.files).toBe('a.ts');
-    expect(vars.dependsOn).toBe('b2');
-    expect(vars.dependsOnSummaries).toBe('- `b2` (B2): s2b');
-    expect(vars.subPlanPrompt).toBe('(none yet — seed the sub-plan from the contract above)');
-    expect(vars.currentSteps).toBe('Live');
-    expect(vars.feedback).toBe('');
-  });
-
-  it('missing values state themselves instead of going blank', async () => {
-    const bare: ScopedRefine = {
-      ...scoped(),
-      branch: { ...authBranch, scope: '', files: [], dependsOn: [] },
-    };
-    const vars = await makeBuilder().scopedVars(ctx, bare, 'go', []);
-    expect(vars.scope).toBe('(none stated)');
-    expect(vars.files).toBe('(none stated)');
-    expect(vars.dependsOn).toBe('(none)');
-    expect(vars.dependsOnSummaries).toBe('');
-    expect(vars.feedback).toBe('go');
-  });
-});
 
 describe('PlanPromptBuilder.whole — the verbatim-prompt shortcut', () => {
   it('a raw verbatim prompt rides through untouched (no contract re-append)', async () => {

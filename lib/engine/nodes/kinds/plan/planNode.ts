@@ -31,12 +31,10 @@ import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { RecoveryResult } from '../../shared/types/recovery';
 import { toStatusOf } from '../../../runtime/transitions/utils/transitionLookup';
 import type { EngineNodeStatus } from '../../../constants/nodeStatus';
-import { PlanAgentSessions } from './planAgentSessions';
 
 import { PlanTurnKind } from './constants/planTurn';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
-import { MAIN_PLAN_THREAD_TAB_ID } from './constants/planThread';
 import { AGENT_CONFIG_FIELDS } from './constants/config/planConfigExports';
 import { RETRYABLE_OUTPUT_ERRORS } from '../../shared/agentOutput/constants/agentOutput';
 import { PLAN_CHAT_LABEL, planValidationFailedEvent, planValidationRefusalReply } from './constants/refine';
@@ -47,24 +45,16 @@ import { PlanContextBlocks } from './planContext';
 import { PlanPromptBuilder } from './planPrompt';
 import { PlanOutputContract } from './planContract';
 
-import type { PlanRunArgs, ScopedRefine } from './types/planTypeExports';
-import { ValidationError } from '@/lib/errors';
-
-/** The branch thread a chat send targets — the main tab means an unthreaded whole-plan send. */
-const planThreadOf = (thread?: string | null): string | null => {
-  const trimmed = thread?.trim();
-  if (!trimmed || trimmed === MAIN_PLAN_THREAD_TAB_ID) return null;
-  return trimmed;
-};
+import type { PlanRunArgs } from './types/planTypeExports';
 
 /**
  * The Plan node (the chat's first-class node): a thin orchestrator over its
  * plan-domain collaborators — {@link PlanStore} (data + publish),
  * {@link PlanContextBlocks} ({{context}} registry), {@link PlanPromptBuilder}
- * (whole/scoped prompts + run intent) and {@link PlanOutputContract}
- * (validation + bounded retry + version publish). The class owns the
- * declarative surface (identity, config knobs, capabilities, previews) and
- * the run/recover wiring; all plan-domain behavior lives in the collaborators.
+ * (whole-plan prompts) and {@link PlanOutputContract} (validation + bounded
+ * retry + version publish). The class owns the declarative surface (identity,
+ * config knobs, capabilities, previews) and the run/recover wiring; all
+ * plan-domain behavior lives in the collaborators.
  *
  * The conversation surface is unified turns via {@link turn} (POST /chat).
  */
@@ -115,7 +105,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   private readonly context: PlanContextBlocks;
   private readonly prompt: PlanPromptBuilder;
   private readonly contract: PlanOutputContract;
-  private readonly sessions: PlanAgentSessions;
 
   constructor(
     support: NodeSupport = nodeSupport,
@@ -125,9 +114,8 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     super(support, runner, ctxHelper);
     this.store = new PlanStore(support);
     this.context = new PlanContextBlocks(support, this.store, ctxHelper);
-    this.prompt = new PlanPromptBuilder(ctxHelper, this.context, this.store);
+    this.prompt = new PlanPromptBuilder(ctxHelper, this.context);
     this.contract = new PlanOutputContract(support, this.store, runner, this.label);
-    this.sessions = new PlanAgentSessions(support);
   }
 
   async run(_ctx: FlowCtx, _input: PlanInput, _config: Record<string, unknown>): Promise<RunOutcome> {
@@ -142,36 +130,20 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /**
-   * Unified plan send (docs/architecture/plan-unified-turns.md): pre-publish,
-   * whole-plan, or branch-thread turns through one envelope + apply path.
+   * Unified plan send (docs/architecture/plan-unified-turns.md): pre-publish or
+   * whole-plan turns through one envelope + apply path.
    */
   override async turn(
     ctx: FlowCtx,
     content: string,
     opts?: ChatTurnOpts
   ): Promise<string> {
-    const branch = planThreadOf(opts?.thread);
     const config = this.parseRunConfig(await this.nodeConfig(ctx));
     const node = await this.node(ctx);
     const model = opts?.model ?? null;
     const settingSources = mcpSourcesOf(config);
 
-    const base = { model, settingSources, branch, scoped: null } as const;
-
-    if (branch) {
-      const scoped = await this.store.scopedRefine(ctx.flow.id, branch);
-      if (!scoped) {
-        throw new ValidationError(`branch "${branch}" not found in the current plan`);
-      }
-      return this.runPlanTurn(ctx, content, {
-        ...base,
-        previousStatus: opts?.previousStatus ?? null,
-        turnKind: PlanTurnKind.Branch,
-        label: `plan branch chat (${branch})`,
-        scoped,
-        prompt: await this.prompt.scoped(ctx, scoped, content, []),
-      });
-    }
+    const base = { model, settingSources, previousStatus: opts?.previousStatus ?? null } as const;
 
     const latest = await this.store.latestPlan(ctx.flow.id);
     if (!latest) {
@@ -182,7 +154,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
       return this.runPlanTurn(ctx, content, {
         ...base,
-        previousStatus: opts?.previousStatus ?? null,
         turnKind: PlanTurnKind.PrePublish,
         label: PLAN_CHAT_LABEL,
         prompt: await this.prompt.whole(ctx, node, bootstrapInput),
@@ -191,7 +162,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
     return this.runPlanTurn(ctx, content, {
       ...base,
-      previousStatus: opts?.previousStatus ?? null,
       turnKind: PlanTurnKind.Whole,
       label: PLAN_CHAT_LABEL,
       prompt: await this.prompt.refineTurn(ctx, content),
@@ -206,8 +176,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       label: string;
       model: string | null;
       settingSources: ReturnType<typeof mcpSourcesOf>;
-      branch: string | null;
-      scoped: ScopedRefine | null;
       prompt: string;
       previousStatus: string | null;
     }
@@ -225,11 +193,8 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     const attemptId = node.attemptId;
     // One source of truth for the main agent id (step 05): the runs table via
     // `lastAgentId` — the node-row `agent_id` mirror lags the run row, so it
-    // is not consulted here. (Removing the mirror column itself is step 06/07
-    // scope; `PlanAgentSessions.recordAgent` still writes it for its readers.)
-    const mainAgentId = opts.branch ? (await this.support.lastAgentId(node.id)) : null;
-
-    const followUpOnAgent = await this.sessions.resolveFollowUp(node, opts.branch);
+    // is not consulted here. The mirror is still written for its readers.
+    const followUpOnAgent = node.agentId ?? (await this.support.lastAgentId(node.id));
 
     const args: PlanRunArgs = {
       label: opts.label,
@@ -239,7 +204,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     };
 
     const finalInputPrompt = PlanInput.parse({
-      planThread: opts.branch,
       planTurnKind: opts.turnKind,
       turnUserMessage: content,
       previousStatus,
@@ -271,14 +235,13 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         opts.turnKind,
         content,
         result.result ?? '',
-        opts.scoped,
         args
       );
 
       const agentId = await this.support.lastAgentId(node.id);
 
       if (agentId) {
-        await this.sessions.recordAgent(ctx, await this.node(ctx), opts.branch, agentId, mainAgentId);
+        await this.support.setNode(node.id, { agent_id: agentId });
       }
 
       if (applied.outcome) {
@@ -351,19 +314,13 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       return { kind: 'manual', reason: 'the recorded input has no plan turn to replay' };
     }
 
-    const branch = recorded.planThread?.trim() || null;
-    const scoped = branch ? await this.store.scopedRefine(ctx.flow.id, branch) : null;
-    if (branch && !scoped) {
-      return { kind: 'manual', reason: `branch thread "${branch}" has no scoped-refine context` };
-    }
     try {
       const applied = await this.contract.applyTurnResult(
         ctx,
         node,
         recorded.planTurnKind,
         recorded.turnUserMessage ?? '',
-        result.result ?? '',
-        scoped
+        result.result ?? ''
       );
       if (applied.outcome) {
         await this.applyOutcome(ctx, applied.outcome, { note: `recovered: ${note}` });
@@ -384,24 +341,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
   /**
    * Live prompt preview (verbatim from the route's former plan case): the
-   * plan body (config knob or default) with the ticket vars. Without the
-   * feedback-refine branch (docs/plan-conversation-refine.md §5 #7) this now
-   * ALWAYS serves the `plan` template — refinements are conversation turns
-   * (`chat()`), and branch refines prefill the composer via the branch route.
+   * plan body (config knob or default) with the ticket vars. Refinements are
+   * conversation turns (`chat()`), so this always serves the `plan` template.
    */
-  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
-    if (params.branch) {
-      const scoped = await this.store.scopedRefine(ctx.flow.id, params.branch);
-      if (!scoped) return null;
-      const vars = await this.prompt.scopedVars(ctx, scoped, '', []);
-      const asm = prompts.assemblePrompt('plan_subplan_refine', vars, { feedback: '' });
-      return {
-        templateKey: 'plan_subplan_refine',
-        configBody: null,
-        assembly: asm,
-      };
-    }
-
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): Promise<NodePromptPreview | null> {
+    void _params;
     const configBody = await nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.PLAN,

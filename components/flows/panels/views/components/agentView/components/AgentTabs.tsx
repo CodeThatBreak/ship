@@ -4,7 +4,8 @@ import { Sparkles } from 'lucide-react';
 import { EmptyHint } from '@/components/shared/EmptyHint';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Node } from '@/types/flow';
-import { AGENT_VIEW_TAB, TABS_LIST_CLASS } from '../constants/tabs';
+import { AGENT_VIEW_TAB } from '../constants/tabs';
+import { PANEL_TABS_LIST_CLASS } from '../../../../constants/tabs';
 import type { AgentViewModel } from '../hooks/useAgentView';
 import { kindTabLabel } from '../utils/tabLabels';
 import { tabIcon } from '../utils/tabIcons';
@@ -32,7 +33,7 @@ export default function AgentTabs({
   return (
     <Tabs value={model.activeTab} onValueChange={model.onTabChange} className="gap-0">
       {model.tabValues.length > 1 && (
-        <TabsList variant="line" aria-label="Agent views" className={TABS_LIST_CLASS}>
+        <TabsList variant="line" aria-label="Agent views" className={PANEL_TABS_LIST_CLASS}>
           <TabsTrigger value={AGENT_VIEW_TAB.OUTPUT}>
             <OutputIcon />
             Output
@@ -48,7 +49,7 @@ export default function AgentTabs({
           })}
         </TabsList>
       )}
-      <TabsContent value={AGENT_VIEW_TAB.OUTPUT} className="pt-4">
+      <TabsContent value={AGENT_VIEW_TAB.OUTPUT} className="px-5 pt-4 pb-4">
         {model.current ? (
           <AgentOutput
             outputKind={model.outputKind}
@@ -61,7 +62,7 @@ export default function AgentTabs({
         )}
       </TabsContent>
       {model.otherKinds.map(kind => (
-        <TabsContent key={kind} value={kind} className="pt-4">
+        <TabsContent key={kind} value={kind} className="px-5 pt-4 pb-4">
           <GenericArtifact
             node={node}
             kind={kind}

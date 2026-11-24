@@ -119,14 +119,13 @@ export class FlowRetryService {
       }
       const chatResponse = await chatRefiner.turn(await this.host.ctx(flowId), turnMessage, {
         model: recorded.model ?? undefined,
-        thread: recorded.planThread,
       });
       await db.addMessage(
         flowId,
         nodeKey,
         'assistant',
         chatResponse || 'Done.',
-        recorded.planThread ?? null
+        null
       );
     });
     return result;

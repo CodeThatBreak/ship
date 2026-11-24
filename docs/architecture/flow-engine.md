@@ -34,7 +34,7 @@ The engine itself keeps: the SDLC builtin chain (`chains/sdlcChain.ts` — `appr
 
 1. An edge activates or an action triggers → `startNodeStage` → `runNode`.
 2. `claimNode` flips the node to `running` with a fresh `attempt_id` (the supersede fence) and `bg` executes the bundle asynchronously.
-3. The def's `triggerRuns(ctx)` yields one or more `NodeTriggerRun`s (multi-run for the sequential multi-branch build); each input is `parseInput`-validated.
+3. The def's `triggerRuns(ctx)` yields one or more `NodeTriggerRun`s (a build trigger currently yields a single run); each input is `parseInput`-validated.
 4. The def's `run()` produces a `RunOutcome` persisted through the single door `applyOutcome` (artifact, validated output, status, lifecycle event).
 5. Terminal success → `advanceFrom(flowId, key)` re-evaluates outgoing edges.
 

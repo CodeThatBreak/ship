@@ -1,18 +1,23 @@
 'use client';
-import { AlertTriangle, FileDiff, GitMerge } from 'lucide-react';
-import type { BranchRow, Artifact } from '@/types/flow';
-import PlanSteps from '../../../components/plan/components/planSteps/PlanSteps';
-import { DiffView } from '../../artifacts/components/DiffView';
-import { BranchFactRow } from '@/components/shared/BranchFactRow';
-import { Alert } from '@/components/ui/alert';
+
+import { useState } from 'react';
+import { FileDiff, Gauge, GitMerge, ListChecks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
-import { PanelShell, ArtifactLoader } from '../../shared';
-import type { ArtifactPayload } from '../../shared';
+import { TabsContent } from '@/components/ui/tabs';
+import { PanelShell } from '../../components/shell/PanelShell';
 import { useNodePanel } from '../../context';
-import { FLOW_ACTION, FLOW_STATUS } from '@/constants/flow';
-import { FLOW_EVENT_TYPE } from '@/constants/events';
-import { EmptyHint } from "@/components/shared/EmptyHint";
+import { BUILD_TAB, type BuildTab } from '../constants/tabs';
+import { useBuildView } from './build/hooks/useBuildView';
+import { BuildDiffContent } from './build/components/BuildDiffContent';
+import { BuildStepsContent } from './build/components/BuildStepsContent';
+import { PanelTabs } from './tabs/PanelTabs';
+import { UsageArtifact } from './tabs/UsageArtifact';
+
+const BUILD_TABS = [
+  { value: BUILD_TAB.DIFF, label: 'Code diff', icon: FileDiff },
+  { value: BUILD_TAB.STEPS, label: 'Steps', icon: ListChecks },
+  { value: BUILD_TAB.USAGE, label: 'Usage', icon: Gauge },
+] as const;
 
 /**
  * The build panel: the agent's diff per branch, the structured plan checklist
@@ -24,66 +29,31 @@ import { EmptyHint } from "@/components/shared/EmptyHint";
  */
 export default function BuildView() {
   const { flow, node, action, events } = useNodePanel();
-  const diffs = node.artifacts.filter((a: Artifact) => a.kind === 'diff');
-  const latest = diffs[diffs.length - 1];
-  const canApprove = node.status === FLOW_STATUS.AWAITING_APPROVAL;
-  const branches = flow.branches ?? [];
-  const hasBranches = branches.length > 1;
-  const planSteps = flow.planSteps ?? [];
-
-  const creatingMr = node.status === FLOW_STATUS.APPROVED && !hasBranches && !flow.mrUrl;
-  const creatingMrBranches = new Set(
-    hasBranches
-      ? branches
-          .filter((b: BranchRow) => (b.status === FLOW_STATUS.APPROVED || b.status === FLOW_STATUS.DONE) && !b.mrUrl)
-          .map((b: BranchRow) => b.name)
-      : []
-  );
-  // latest MR-creation failure per branch — cleared as soon as a newer
-  // lifecycle/error event arrives (the engine only emits mr_failed for MR
-  // creation failures, so anything newer means a retry is in flight)
-  const mrErrorFor = (branch?: string) => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i];
-      if (e.type === FLOW_EVENT_TYPE.MR_FAILED) {
-        const branchName = e.data?.branchName;
-        if (typeof branchName === "string" && branchName === branch) return e.message as string;
-        continue;
-      }
-      if (e.type === FLOW_EVENT_TYPE.LIFECYCLE || e.type === FLOW_EVENT_TYPE.ERROR) return null;
-    }
-    return null;
-  };
-
-  const approveAll = () => action(FLOW_ACTION.APPROVE_BUILD);
-  const approveBranch = (name: string) => action(FLOW_ACTION.APPROVE_BUILD, { branch: name });
-
-  const singleErr = canApprove && !hasBranches ? mrErrorFor(undefined) : null;
-  const allAwaiting =
-    canApprove && hasBranches && branches.every((b: BranchRow) => b.status === FLOW_STATUS.AWAITING_APPROVAL);
+  const [activeTab, setActiveTab] = useState<BuildTab>(BUILD_TAB.DIFF);
+  const model = useBuildView(flow, node, action, events);
 
   const footer = (
     <>
       <span className="text-xs text-muted-foreground">
-        {canApprove
-          ? (singleErr ??
-            (hasBranches
+        {model.canApprove
+          ? (model.singleErr ??
+            (model.hasBranches
               ? 'Review each diff, then create the merge requests.'
               : 'Review the diff, then create the merge request.'))
-          : creatingMr || creatingMrBranches.size > 0
+          : model.creatingMr || model.creatingMrBranches.size > 0
             ? 'Creating the merge request — the pipeline stage starts once the MR exists.'
-            : flow.mrUrl || hasBranches
+            : flow.mrUrl || model.hasBranches
               ? 'Merge request created.'
               : 'The diff appears here once the build finishes.'}
       </span>
       <div className="flex-1" />
-      {canApprove && !hasBranches && (
-        <Button onClick={approveAll}>
-          <GitMerge size={14} /> {singleErr ? 'Retry: accept & create MR' : 'Accept & create MR'}
+      {model.canApprove && !model.hasBranches && (
+        <Button onClick={model.approveAll}>
+          <GitMerge size={14} /> {model.singleErr ? 'Retry: accept & create MR' : 'Accept & create MR'}
         </Button>
       )}
-      {allAwaiting && (
-        <Button onClick={approveAll}>
+      {model.allAwaiting && (
+        <Button onClick={model.approveAll}>
           <GitMerge size={14} /> Accept all & create MRs
         </Button>
       )}
@@ -91,89 +61,30 @@ export default function BuildView() {
   );
 
   return (
-    <PanelShell node={node} flow={flow} runningLabel="Agent is implementing the plan…" footer={footer}>
-      {/* structured plan progress — the build agent checks steps off as it reports them */}
-      {planSteps.length > 0 && (
-        <PlanSteps steps={planSteps} editable={false} highlight flowId={flow.id} className="mb-4" />
-      )}
-      {creatingMr && (
-        <Alert variant="default" className="mb-3.5">
-          <Spinner />
-          <span className="flex-1 text-muted-foreground">
-            Creating the merge request — the pipeline stage starts once the MR exists.
-          </span>
-        </Alert>
-      )}
-      {canApprove && !hasBranches && singleErr && (
-        <Alert variant="destructive" className="mb-3.5">
-          <AlertTriangle size={16} className="shrink-0" />
-          <span className="flex-1">{singleErr}</span>
-          <Button size="sm" onClick={approveAll}>
-            <GitMerge size={13} /> Retry: accept & create MR
-          </Button>
-        </Alert>
-      )}
-      {/* per-branch build status + approval */}
-      {hasBranches && (
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-            <GitMerge size={14} /> Merge requests
-          </h3>
-          <div className="grid gap-2">
-            {branches.map((b: BranchRow) => {
-              const err = b.status === FLOW_STATUS.AWAITING_APPROVAL ? mrErrorFor(b.name) : null;
-              return (
-                <BranchFactRow
-                  key={b.id}
-                  name={b.name}
-                  title={b.title}
-                  status={b.status}
-                  mrUrl={b.mrUrl}
-                  mrIid={b.mrIid}
-                  detail={err ? <div className="text-destructive text-xs mt-1">{err}</div> : null}
-                  trailing={
-                    <>
-                      {creatingMrBranches.has(b.name) && (
-                        <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-                          <Spinner /> Creating MR…
-                        </span>
-                      )}
-                      {b.status === FLOW_STATUS.AWAITING_APPROVAL && (
-                        <Button size="sm" onClick={() => approveBranch(b.name)}>
-                          <GitMerge size={13} /> {err ? 'Retry: accept & create MR' : 'Accept & create MR'}
-                        </Button>
-                      )}
-                    </>
-                  }
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {!hasBranches && flow.mrUrl && (
-        <p className="text-[13px]">
-          <a href={flow.mrUrl} target="_blank" className="text-info hover:underline">
-            Open MR !{flow.mrIid} ↗
-          </a>{' '}
-          on branch <code className="font-mono">{flow.mrBranch}</code>
-        </p>
-      )}
-      {(latest || (!canApprove && node.status !== FLOW_STATUS.RUNNING)) && (
-        <div>
-          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-            <FileDiff size={14} /> Changes
-          </h3>
-          {latest ? (
-            <ArtifactLoader
-              id={latest.id}
-              render={(loaded: ArtifactPayload) => <DiffView artifact={loaded} action={action} />}
-            />
-          ) : (
-            <EmptyHint icon={GitMerge}>No changes yet.</EmptyHint>
-          )}
-        </div>
-      )}
+    <PanelShell
+      node={node}
+      flow={flow}
+      hideCost
+      fullBleedContent
+      runningLabel="Agent is implementing the plan…"
+      footer={footer}
+    >
+      <PanelTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        ariaLabel="Build views"
+        tabs={BUILD_TABS}
+      >
+        <TabsContent value={BUILD_TAB.DIFF} className="px-5 pt-4 pb-4">
+          <BuildDiffContent flow={flow} action={action} model={model} />
+        </TabsContent>
+        <TabsContent value={BUILD_TAB.STEPS} className="px-5 pt-4 pb-4">
+          <BuildStepsContent steps={flow.planSteps ?? []} flowId={flow.id} />
+        </TabsContent>
+        <TabsContent value={BUILD_TAB.USAGE} className="px-5 pt-4 pb-4">
+          <UsageArtifact node={node} />
+        </TabsContent>
+      </PanelTabs>
     </PanelShell>
   );
 }

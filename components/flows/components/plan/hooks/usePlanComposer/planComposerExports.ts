@@ -1,9 +1,6 @@
 /**
- * The plan composer, split (docs/architecture/plan-unified-turns.md):
- * `usePlanComposer` wires thread state and prompt prefill sources;
- * `usePlanChatAction` owns the chat rail's thread state — the active tab,
- * the per-thread unsent drafts and the imperative draft swaps through the
- * composer's chat ref.
+ * The plan composer: `usePlanComposer` supplies prompt prefill sources;
+ * `usePlanChatAction` owns the single bulk prompt read.
  */
 export { usePlanComposer } from "./usePlanComposer";
 export { default as usePlanChatAction } from "./hooks/usePlanChatAction";
