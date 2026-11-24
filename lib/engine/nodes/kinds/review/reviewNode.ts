@@ -220,8 +220,9 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
 
   /**
    * The finalize pipeline shared by the live run and restart recovery: parse
-   * the agent's comment list (an empty or unparseable reply is a FAILED node —
-   * missing output is a first-class state, never a silent done-with-0),
+   * the agent's comment list (empty or unparseable output is a FAILED node —
+   * missing output is a first-class state, never a silent done-with-0; a valid
+   * `[]` is the contract's "no findings" answer and completes with 0 comments),
    * post the comments through the `postedHashes` ledger (idempotent — a
    * recovery re-run posts only what the ledger does not hold), and build the
    * outcome.
@@ -243,13 +244,12 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     const { repoUrl, mrIid, host, changes, changeRequest } = hostCtx;
     const parsed = parseReviewComments(result.result ?? "");
     if (parsed.warning) {
+      // step 05: empty or unparseable output is a failed node — the agent
+      // produced no reviewable result; publishing `done` with 0 comments
+      // fabricated a success. A valid `[]` carries no warning: it is a clean
+      // review with no findings and completes below with `comments: 0`.
       await this.support.emit(ctx.flow.id, node.id, "log", parsed.warning);
-    }
-    if (parsed.comments.length === 0) {
-      // step 05: an empty or unparseable reply is a failed node — the agent
-      // produced no reviewable output; publishing `done` with 0 comments
-      // fabricated a success
-      const message = parsed.warning ?? "review could not parse comments from agent output";
+      const message = parsed.warning;
       return {
         status: "failed" as const,
         output: this.outputSchema.parse({ comments: 0, branchName: input.branchName ?? undefined }),

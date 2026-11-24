@@ -41,7 +41,7 @@ Engine-only (not serialized to UI):
 - **Entry:** Pipeline green (auto trigger on the `pipeline → review` edge), the panel's "Run AI review" button, a chat message, or `retry` on a failed run.
 - **Surface:** Both — the panel shows "Agent is reviewing the merge request…"; the chat rail streams run events.
 - **Action:** `POST /api/flows/:id/action` with action `review` (optional `prompt` / `promptIsBody` / `model` from the prompt modal), or `POST /api/flows/:id/chat` for a focused re-review.
-- **Outcome:** The agent reads the MR diff and posts comments to the MR; a `review` artifact records what was posted. Unparseable agent output fails the node with a warning event; `[]` or empty output completes with `comments: 0`.
+- **Outcome:** The agent reads the MR diff and posts comments to the MR; a `review` artifact records what was posted. Empty or unparseable output fails the node with a warning event; a valid `[]` (no findings) completes with `comments: 0`.
 
 ### Phase 3 — Comments published, awaiting resolution
 
@@ -117,7 +117,7 @@ Generic `NodeChat` → `ChatPanel` bound to `node.node_key`; sends go to `POST /
 2. Resolves the MR target and fetches the diff via `host.getChanges` (capped at 60 000 chars; a truncation note is prepended when GitLab cut the change set).
 3. Assembles the prompt: template key `review`, ticket variables, optional developer `instructions`, the diff block.
 4. `execute` runs the agent; `finalize` parses the output with `parseReviewComments`:
-   - No parseable JSON array (non-empty output) → node `failed`, artifact recorded with `posted: 0`, warning event.
+   - Empty output or no parseable JSON array → node `failed`, artifact recorded with `posted: 0`, warning event. A valid `[]` is a clean review: it posts nothing and completes with `comments: 0`.
    - Otherwise posts each comment not already in `postedHashes` (sha256 over `{ mrIid, style, file, line, body }`), honoring `max_comments` and `comment_style` (`summary` posts one combined note). Progress is persisted to the artifact after every post, so a mid-run failure never double-posts on retry.
 
 ### Chat lifecycle (`chat` / `converse`)
@@ -197,7 +197,7 @@ Validated by `reviewCommentItemSchema` (`file` / `line` optional, `body` non-emp
 
 ### Retries and guards
 
-- Empty output → warning log, run completes with `comments: 0`.
+- Empty output → node `failed` with a warning event (step 05); a valid `[]` → run completes with `comments: 0`.
 - Non-empty unparseable output → node `failed`; the developer retries via `retry` or a chat message.
 - Reruns skip any comment whose hash is already in `postedHashes` (covers both duplicate AI findings and retry-after-partial-failure).
 - Ingestion never re-opens a thread the agent resolved (`resolved_by = 'agent'` guard in `commentStore.ingest`).

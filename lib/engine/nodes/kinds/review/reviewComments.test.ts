@@ -19,6 +19,12 @@ describe("parseReviewComments", () => {
     expect(out.warning).toBeTruthy();
   });
 
+  it("treats a valid empty array as a clean review, not a warning", () => {
+    const out = parseReviewComments("```json\n[]\n```");
+    expect(out.comments).toEqual([]);
+    expect(out.warning).toBeUndefined();
+  });
+
   it("warns when markdown brackets are not a valid comment array", () => {
     const out = parseReviewComments("See [link](url) for context.");
     expect(out.comments).toHaveLength(0);

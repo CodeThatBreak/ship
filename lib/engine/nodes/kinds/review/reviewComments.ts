@@ -6,7 +6,8 @@ import { ReviewCommentsSchema, type ReviewCommentItem } from "./schema";
 
 export type ParseReviewCommentsResult = {
   comments: ReviewCommentItem[];
-  /** Set when the agent text could not be parsed into a valid comment list. */
+  /** Set when the agent text could not be parsed into a valid comment list.
+   *  A valid `[]` (the prompt's "no findings" answer) is not a warning. */
   warning?: string;
 };
 
@@ -30,9 +31,8 @@ export const parseReviewComments = (text: string): ParseReviewCommentsResult => 
       warning: "Review JSON did not match the expected comment array shape.",
     };
   }
-  if (result.data.length === 0) {
-    return { comments: [], warning: "Review JSON array was empty." };
-  }
+  // a valid `[]` is the contract's "no findings" answer (promptDefaults:
+  // "If none, return []") — no warning, the node completes with 0 comments
   return { comments: result.data };
 };
 
