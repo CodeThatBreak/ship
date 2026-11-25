@@ -23,6 +23,26 @@ export class AgentRunTimeoutError extends UpstreamError {
   }
 }
 
+/**
+ * The local agent host child process died without delivering a result — the
+ * run is gone with it; the caller treats it as failed and reconcile/retry
+ * decides what happens next. Fires both for a crash mid-run and for a child
+ * that died before posting `started` (runId null then, so the host's
+ * createRun rejects with this same error).
+ */
+export class AgentHostExitError extends UpstreamError {
+  constructor(
+    readonly runId: string | null,
+    readonly exitCode: number | null,
+    readonly signal: string | null,
+  ) {
+    super(
+      `Local agent host process ${runId ? `for run ${runId} ` : ""}exited without a result ` +
+        `(code=${exitCode ?? "?"}, signal=${signal ?? "none"})`,
+    );
+  }
+}
+
 /** A local agent run was requested without a workspace path — configuration error, surfaced before any run starts. */
 export class AgentRunWorkspaceError extends ValidationError {
   constructor() {

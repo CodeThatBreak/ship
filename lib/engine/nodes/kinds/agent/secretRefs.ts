@@ -8,8 +8,8 @@ import { secretStore } from "../../../secretStore";
  * runtime material. Two consumers, one read:
  *
  *  - `AgentStartSpec.env` — the declared secrets ride the existing per-run
- *    env channel (cloud `cloud.envVars`; local has no env channel and gets
- *    them through the prompt interpolation instead).
+ *    env channel (cloud `cloud.envVars`; local runs get them through the
+ *    agent host child's environment).
  *  - the prompt resolver — `{{secrets.NAME}}` in the prompt template resolves
  *    ONLY for a declared ref, and a declared ref that resolves to nothing
  *    fails the run loudly (the silent-`""` hole, C1 — the renderer's own

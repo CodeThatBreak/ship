@@ -49,8 +49,8 @@ export interface AgentStartInput {
   settingSources?: SettingSource[];
   /** Per-run env vars for the agent's shell (step 08: the agent-tools
    *  capability token rides `DEVFLOW_AGENT_TOKEN`). Cloud runtimes inject
-   *  them natively (SDK `cloud.envVars`); local runs have no env channel and
-   *  receive the token through the prompt's tools block instead. */
+   *  them natively (SDK `cloud.envVars`); local runs receive them through
+   *  the agent host child's environment. */
   env?: Record<string, string>;
 }
 

@@ -96,7 +96,8 @@ export interface AgentStartSpec {
    * Per-run env vars injected into the agent's shell (step 08 — the
    * agent-tools capability token). Cloud runtimes map this to the SDK's
    * `cloud.envVars` (encrypted at rest, deleted with the agent); local
-   * runtimes have no env channel and receive the values through the prompt.
+   * runtimes receive it through the agent host child's environment (merged
+   * over a scrubbed copy of the server env).
    */
   env?: Record<string, string>;
 }

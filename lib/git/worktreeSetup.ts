@@ -7,6 +7,7 @@ import path from "path";
 import { promisify } from "util";
 import { MAX_GIT_BUFFER } from "./gitRunner";
 import { worktrees } from "./worktrees";
+import { buildAgentHostEnv } from "../integrations/localAgent/host/agentHostEnv";
 import {
   COMMON_CACHE_DIRS,
   DEFAULT_SETUP_TIMEOUT_MS,
@@ -622,7 +623,12 @@ export async function runCommand(
       cwd,
       shell: process.platform === "win32" ? true : "/bin/bash",
       detached: process.platform !== "win32",
-      env: process.env,
+      // scrubbed server env — `yarn install` must not see the web process's
+      // NODE_ENV=production (it would skip devDependencies), and setup
+      // commands must not inherit server secrets (the same policy the agent
+      // host children run under). The cast: Next's augmentation requires
+      // NODE_ENV on ProcessEnv — a key the scrub removes by design.
+      env: buildAgentHostEnv(process.env) as NodeJS.ProcessEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

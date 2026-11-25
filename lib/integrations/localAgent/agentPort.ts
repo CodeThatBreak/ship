@@ -17,10 +17,11 @@ import { AgentRunLookupError } from "../../engine/ports/agentErrors";
 import { CURSOR_LIST_DISCOUNT, CURSOR_RATE_OVERRIDES } from "../cursor/pricing";
 
 /**
- * Local agent port: wraps the local agent service (in-process agent loop over
- * the same SDK runtime). Runs live in-process (never durable across restarts)
- * — recovery probes the persisted agent session via inspectSession, and
- * usage is account-gated (no billed cost).
+ * Local agent port: wraps the local agent service (per-run agent host child
+ * process over the same SDK runtime). Runs are not durable across restarts
+ * (the child dies with the process that started it) — recovery probes the
+ * persisted agent session via inspectSession, and usage is account-gated (no
+ * billed cost).
  */
 export class CursorLocalAgentPort implements AgentPort {
   readonly kind = "cursor-local";
@@ -47,6 +48,9 @@ export class CursorLocalAgentPort implements AgentPort {
       // ambient MCP/setting layers — applied on create AND resume (the SDK
       // requires settingSources to be re-passed on follow-up runs)
       settingSources: spec.settingSources,
+      // per-run env vars (declared secrets + the agent-tools capability
+      // token) — merged over the scrubbed server env in the agent host child
+      env: spec.env,
     });
   }
 

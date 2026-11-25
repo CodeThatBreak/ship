@@ -171,10 +171,11 @@ export abstract class AgentRunNode<
     const attemptId = node.attemptId;
     // Step 08 (Invariant 10): the running agent's tools ride the prompt as a
     // locked appended block — only when the endpoint is reachable
-    // (SERVER_PUBLIC_URL) and the kind declares tools. Cloud runs get the
-    // token injected into the run environment instead of prompt text; local
-    // runs (no env channel) carry it inline in the block. The recorded input
-    // blob always redacts the token (it is what the UI/retry record shows).
+    // (SERVER_PUBLIC_URL) and the kind declares tools. The token never enters
+    // prompt text: every runtime receives it through the run environment
+    // (cloud `cloud.envVars`; the agent host child's env for local runs) and
+    // the block references the env var. The recorded input blob always
+    // redacts the token (it is what the UI/retry record shows).
     const execMode = this.ctxHelper.execMode(ctx);
     const apiToken = attemptId != null ? (engineParts.attemptRegistry.apiTokenOf(node.id) ?? null) : null;
     const toolsBlock = agentToolsBlock({
@@ -182,7 +183,6 @@ export abstract class AgentRunNode<
       flowId: ctx.flow.id,
       nodeKey: node.nodeKey,
       token: apiToken,
-      execMode,
       tools: this.agentTools(),
     });
     const prompt = toolsBlock ? `${opts.prompt}\n\n${toolsBlock}` : opts.prompt;

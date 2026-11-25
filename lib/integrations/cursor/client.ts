@@ -1,10 +1,7 @@
 import "server-only";
 
-import {
-  cursorAgent,
-  type AgentRunResult,
-  type StreamCallbacks,
-} from "../cursorSdk";
+import { cursorAgent, type AgentRunResult } from "../cursorSdk";
+import type { StreamCallbacks } from "../utils/sdkMessageDispatch";
 import { parseModelSpec } from "../../modelSpec";
 import type { AgentRunQuery } from "../../engine/ports/agentPort";
 
@@ -57,7 +54,6 @@ export class CursorClient {
   async createAgent(input: CreateAgentInput) {
     const started = await cursorAgent.createRun({
       prompt: input.prompt,
-      cloud: true,
       repos: input.repos,
       mode: input.mode,
       autoCreatePR: input.autoCreatePR,
@@ -72,7 +68,6 @@ export class CursorClient {
   async followUp(agentId: string, prompt: string, mode?: "agent" | "plan") {
     const started = await cursorAgent.createRun({
       prompt,
-      cloud: true,
       mode,
       resumeAgentId: agentId,
     });

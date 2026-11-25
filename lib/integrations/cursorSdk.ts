@@ -8,7 +8,6 @@ import {
   type Run as SdkRun,
   type RunResult as SdkRunResult,
   type SDKAgent,
-  type SDKMessage,
   type SDKModel,
   type SettingSource as SdkSettingSource,
   type TokenUsage,
@@ -19,6 +18,7 @@ import { pinnedProcessService } from "../composition/processServices";
 import { cursorCredentials } from "./cursor/credentials";
 import { AgentRunLookupError } from "../engine/ports/agentErrors";
 import type { AgentRunQuery } from "../engine/ports/agentPort";
+import { dispatchSdkMessage, type StreamCallbacks } from "./utils/sdkMessageDispatch";
 
 // ── shared vocabulary (SDK-native shapes, re-exported for the engine) ───────
 export type { TokenUsage };
@@ -37,35 +37,14 @@ export type AgentRunResult = SdkRunResult;
 /** Live SDK run handle. */
 export type Run = SdkRun;
 
-export interface StreamCallbacks {
-  onStatus?: (s: string) => void;
-  onAssistant?: (text: string) => void;
-  onThinking?: (text: string) => void;
-  onTool?: (
-    name: string,
-    status: string,
-    args?: unknown,
-    callId?: string,
-    extra?: { result?: unknown; truncated?: unknown },
-  ) => void;
-}
-
 export interface CreateRunInput {
   prompt: string;
   mode?: "agent" | "plan";
   name?: string;
   model?: ModelSelection;
-  // local runtime
-  cwd?: string; // local working dir (workspace or worktree override)
-  sandbox?: boolean;
-  force?: boolean;
-  // cloud runtime
-  cloud?: boolean;
   repos?: { url: string; startingRef?: string }[];
   autoCreatePR?: boolean;
   customSubagents?: { name: string; instructions: string }[];
-  // local runtime — ambient setting layers (their MCP servers) the agent loads
-  settingSources?: SdkSettingSource[];
   // cloud runtime — per-run env vars injected into the agent's shell (step 08:
   // the agent-tools capability token). SDK `cloud.envVars` — encrypted at
   // rest, deleted with the agent.
@@ -85,13 +64,16 @@ export interface StartedRun {
 const TERMINAL_STATUSES = new Set(["finished", "error", "cancelled"]);
 
 /**
- * Unified Cursor agent integration: one service over the @cursor/sdk `Agent`
- * runtime that drives both local (in-process agent loop, files from disk) and
- * cloud (Cursor-hosted VM) runs behind a single streaming/usage/result path.
+ * Cloud Cursor agent integration: one service over the @cursor/sdk `Agent`
+ * cloud runtime. It also carries the shared, shell-free surfaces every port
+ * needs — the model catalog (with fast-mode pinning), Node/key availability,
+ * the persisted local-session probe (`inspectLocalRun`) for local-run
+ * recovery, and usage reporting.
  *
- * Run handles are kept in-process keyed by runId so the engine can stream and
- * cancel. Run state after a restart comes from the SDK itself — cloud runs
- * are durable by id, local runs are re-read from the persisted local store.
+ * Cloud run handles are kept in-process keyed by runId so the engine can
+ * stream and cancel. Local runs are NOT started here — they run one agent
+ * host child process per run (`lib/integrations/localAgent/host/`), and
+ * their recovery reads the SDK's persisted local store via `inspectLocalRun`.
  */
 export class CursorAgentService {
   private runs = new Map<string, StartedRun>();
@@ -100,7 +82,8 @@ export class CursorAgentService {
   private static readonly MODEL_TTL_MS = 10 * 60 * 1000;
   private modelCache: { at: number; models: SDKModel[] } | null = null;
 
-  private async apiKey(): Promise<string> {
+  /** The stored Cursor API key — public so the local path can hand it to its child process. */
+  async apiKey(): Promise<string> {
     const key = await cursorCredentials.apiKey();
     if (!key) throw new Error("Cursor API key not set — add it in Settings → Integrations → Harness");
     return key;
@@ -158,8 +141,11 @@ export class CursorAgentService {
   // ── run lifecycle ─────────────────────────────────────────────────────────
 
   /**
-   * Pin fast mode OFF on a model the catalog declares as fast-capable. The
-   * SDK passes ModelSelection params verbatim — an unstated `fast` falls
+   * Resolve a model selection with fast mode pinned OFF on a model the
+   * catalog declares as fast-capable — public so the local agent path can
+   * resolve the selection in the parent before handing it to its child.
+   *
+   * The SDK passes ModelSelection params verbatim — an unstated `fast` falls
    * through to the account's default variant, which is fast=true for composer
    * models. An explicit fast value already on the selection wins (fast=true
    * stays an opt-in, fast=false is already the pick); a malformed fast value
@@ -169,7 +155,7 @@ export class CursorAgentService {
    * catalog is unreachable, passing the selection through rather than failing
    * the run.
    */
-  private async pinFastOff(model: ModelSelection): Promise<ModelSelection> {
+  async resolveModel(model: ModelSelection): Promise<ModelSelection> {
     const fastValue = model.params?.find((p) => p.id.trim() === FAST_PARAM)?.value.trim();
     if (fastValue === FAST_ON || fastValue === FAST_OFF) return model;
     const catalog = await this.listCatalog();
@@ -191,38 +177,24 @@ export class CursorAgentService {
   }
 
   /**
-   * Start (or resume) an agent run on the configured runtime. For local runs
-   * the returned agentId is `agent-<uuid>`; for cloud runs `bc-<uuid>`.
-   * The run's first `send()` is issued before returning, and the in-process
-   * handle is registered so streamRun/cancelRun can reach it.
+   * Start (or resume) a CLOUD agent run. For runs the returned agentId is
+   * `bc-<uuid>`. The run's first `send()` is issued before returning, and the
+   * in-process handle is registered so streamRun/cancelRun can reach it.
+   * Local runs live behind the per-run agent host child process instead
+   * (`lib/integrations/localAgent/host/localAgentHost.ts`).
    */
   async createRun(
     input: CreateRunInput,
   ): Promise<{ agentId: string; runId: string }> {
     const apiKey = await this.apiKey();
-    const isCloud = input.cloud === true;
-    // fast mode defaults OFF — pinned before the selection reaches either
+    // fast mode defaults OFF — pinned before the selection reaches the
     // runtime (the SDK would otherwise fall through to the fast variant)
-    const model = input.model ? await this.pinFastOff(input.model) : undefined;
-
-    if (!isCloud && input.cwd && !fs.existsSync(input.cwd)) {
-      throw new Error(
-        `Local path for this repo does not exist: ${input.cwd}. Fix it on the Settings page.`,
-      );
-    }
+    const model = input.model ? await this.resolveModel(input.model) : undefined;
 
     let agent: SDKAgent;
     if (input.resumeAgentId) {
       // follow-up: resume the existing agent conversation, then send the prompt
       const resumeOpts: Partial<AgentOptions> = { apiKey };
-      if (!isCloud && input.cwd) {
-        resumeOpts.local = {
-          cwd: input.cwd,
-          // settingSources must be re-passed on resume — inline/file-based MCP
-          // context isn't persisted on the agent (see the SDK's resume docs)
-          ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
-        };
-      }
       if (model) resumeOpts.model = model;
       agent = await Agent.resume(input.resumeAgentId, resumeOpts);
     } else {
@@ -230,33 +202,22 @@ export class CursorAgentService {
       if (input.name) opts.name = input.name;
       if (input.mode) opts.mode = input.mode;
       if (model) opts.model = model;
-      if (isCloud) {
-        opts.cloud = {
-          repos: input.repos?.length ? input.repos : [],
-          autoCreatePR: input.autoCreatePR ?? false,
-          // per-run env vars (step 08: the agent-tools capability token) —
-          // SDK cloud.envVars; omitted when unset so default runs are unchanged
-          ...(input.envVars && Object.keys(input.envVars).length ? { envVars: input.envVars } : {}),
-        };
-        if (input.customSubagents?.length) {
-          opts.agents = Object.fromEntries(
-            input.customSubagents
-              .slice(0, 20)
-              .map((s) => [
-                s.name,
-                { description: s.instructions, prompt: s.instructions },
-              ]),
-          );
-        }
-      } else {
-        opts.local = {
-          cwd: input.cwd ?? process.cwd(),
-          sandboxOptions: { enabled: input.sandbox ?? false },
-          // ambient setting layers for MCP servers (local-settingSources) —
-          // omitted for cloud: cloud always loads project/team/plugins and
-          // dashboard servers and ignores the knob
-          ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
-        };
+      opts.cloud = {
+        repos: input.repos?.length ? input.repos : [],
+        autoCreatePR: input.autoCreatePR ?? false,
+        // per-run env vars (step 08: the agent-tools capability token) —
+        // SDK cloud.envVars; omitted when unset so default runs are unchanged
+        ...(input.envVars && Object.keys(input.envVars).length ? { envVars: input.envVars } : {}),
+      };
+      if (input.customSubagents?.length) {
+        opts.agents = Object.fromEntries(
+          input.customSubagents
+            .slice(0, 20)
+            .map((s) => [
+              s.name,
+              { description: s.instructions, prompt: s.instructions },
+            ]),
+        );
       }
       agent = await Agent.create(opts);
     }
@@ -264,7 +225,6 @@ export class CursorAgentService {
     const run = await agent.send(input.prompt, {
       ...(input.mode ? { mode: input.mode } : {}),
       ...(model ? { model } : {}),
-      ...(!isCloud && input.force ? { local: { force: true } } : {}),
     });
 
     const started: StartedRun = {
@@ -332,37 +292,11 @@ export class CursorAgentService {
     const done = run.wait();
     try {
       for await (const msg of run.stream()) {
-        this.dispatch(msg, cb);
+        dispatchSdkMessage(msg, cb);
       }
       return await done;
     } finally {
       await done.catch(() => {});
-    }
-  }
-
-  /** Map one SDKMessage onto the engine's stream callbacks. */
-  private dispatch(msg: SDKMessage, cb: StreamCallbacks): void {
-    switch (msg.type) {
-      case "assistant":
-        for (const block of msg.message.content) {
-          if (block.type === "text") cb.onAssistant?.(block.text);
-        }
-        break;
-      case "thinking":
-        if (msg.text) cb.onThinking?.(msg.text);
-        break;
-      case "tool_call":
-        cb.onTool?.(msg.name, msg.status, msg.args, msg.call_id, {
-          result: msg.result,
-          truncated: msg.truncated,
-        });
-        break;
-      case "status":
-        cb.onStatus?.(msg.status);
-        break;
-      default:
-        // system / user / task / request / usage — not feed-worthy
-        break;
     }
   }
 

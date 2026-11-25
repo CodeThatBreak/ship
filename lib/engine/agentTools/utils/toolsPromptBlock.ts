@@ -1,6 +1,5 @@
 import "server-only";
 
-import type { RunMode } from "../../../../constants/execution";
 import { AGENT_TOKEN_ENV } from "../constants/agentTools";
 import type { ToolDescriptor } from "../types/tools";
 
@@ -13,30 +12,24 @@ import type { ToolDescriptor } from "../types/tools";
  * Engine-authored behavioral text: appended as a locked block at run time,
  * never part of a user-editable template body.
  *
- * The token is inlined for LOCAL runs (the local runtime has no env
- * channel); cloud runs get it injected into the run environment
- * (`cloud.envVars`) and the block references the env var instead — the
- * token then never enters prompt text at all.
+ * The token never enters prompt text: every runtime injects it into the run's
+ * environment (`cloud.envVars` for cloud runs; the agent host child's env for
+ * local runs), and the block references `$DEVFLOW_AGENT_TOKEN` instead.
  */
 export const agentToolsBlock = (args: {
   baseUrl: string;
   flowId: string;
   nodeKey: string;
   /** null = preview/assembly without a live attempt — the block describes
-   *  the token as "issued at run start" instead of inlining one. */
+   *  the token as "issued at run start" instead of referencing a live one. */
   token: string | null;
-  /** local runs need the token inline; every other mode (cloud, dry-run)
-   *  references the injected env var */
-  execMode: RunMode;
   tools: readonly ToolDescriptor[];
 }): string => {
   if (!args.baseUrl || args.tools.length === 0) return "";
   const endpoint = `${args.baseUrl.replace(/\/$/, "")}/api/flows/${args.flowId}/nodes/${args.nodeKey}/agent-tools`;
   const tokenLine = args.token == null
     ? "Authorization: Bearer <capability token — issued at run start>"
-    : args.execMode === "local"
-      ? `Authorization: Bearer ${args.token}`
-      : `Authorization: Bearer $${AGENT_TOKEN_ENV} (injected into your run environment)`;
+    : `Authorization: Bearer $${AGENT_TOKEN_ENV} (injected into your run environment)`;
   return [
     `## Tools available`,
     `You can query and act on this flow's live state via the agent-tools endpoint:`,
@@ -57,6 +50,7 @@ export const agentToolsBlock = (args: {
 export const TOKEN_MASK = "••••••••";
 
 /** Replace every occurrence of the capability token with the mask — used on
- *  the prompt text persisted to `nodes.input` (UI/retry record). */
+ *  the prompt text persisted to `nodes.input` (UI/retry record). A safety net
+ *  since the live token no longer enters prompt text at all. */
 export const redactCapabilityToken = (text: string, token: string | null): string =>
   token && text.includes(token) ? text.split(token).join(TOKEN_MASK) : text;
