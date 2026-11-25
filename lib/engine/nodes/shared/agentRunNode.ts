@@ -12,6 +12,7 @@ import { NodeDefinition } from "./nodeDefinition";
 import type { RunOutcome } from "./types/runOutcome";
 import type { ChatTurnOpts } from "./nodeRoles/types/nodeRoles";
 import type { ExecuteRunMeta } from "./types/executeRunMeta";
+import type { RunCostSummary } from "../../harness/types/runCostSummary";
 import { AGENT_TOKEN_ENV, AGENT_TOOL_SETS } from "../../agentTools/constants/agentTools";
 import type { ToolDescriptor } from "../../agentTools/types/tools";
 import { agentToolsBlock, redactCapabilityToken } from "../../agentTools/utils/toolsPromptBlock";
@@ -217,9 +218,7 @@ export abstract class AgentRunNode<
       // Task 21: the run's token/cost usage rides the outcome as a side-channel —
       // `applyOutcome` persists it as a `usage` artifact inside the terminal
       // batch (Invariant F2). A run that reported no usage attaches nothing.
-      const withUsage: RunOutcome = hasRunUsage(usage)
-        ? { ...outcome, usage: runUsagePayload(usage) }
-        : outcome;
+      const withUsage = this.withRunUsage(outcome, usage);
       // Task 22 (use case 8c): the capped tool-call log rides the same
       // side-channel — persisted as a `transcript` artifact in the terminal
       // batch. A run with no tool calls attaches nothing.
@@ -248,6 +247,18 @@ export abstract class AgentRunNode<
       event: `${label} superseded`,
       reply: "",
     };
+  }
+
+  /**
+   * Attach a finished agent run's usage to its outcome. The shared terminal
+   * batch persists this as a `usage` artifact; duration-only captures attach
+   * nothing. Plan turns use the same handoff because they own a bespoke
+   * chat/revert lifecycle instead of calling `execute()`.
+   */
+  protected withRunUsage(outcome: RunOutcome, usage?: RunCostSummary): RunOutcome {
+    return hasRunUsage(usage)
+      ? { ...outcome, usage: runUsagePayload(usage) }
+      : outcome;
   }
 
   /**

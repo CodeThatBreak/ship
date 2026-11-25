@@ -11,7 +11,8 @@ import { prompts } from "../../../prompts/promptLibrary";
 import { flowCtxHelper } from "../../shared/runContext";
 import type { FlowContextHelper } from "../../shared/runContext/flowContextHelper";
 import { nodeSupport } from "@/lib/composition/container";
-import { EVENT_KIND } from "../../../constants/vocabulary";
+import { EVENT_KIND, ARTIFACT_KIND } from "../../../constants/vocabulary";
+import { hasRunUsage, runUsagePayload } from "../../../usage/runUsagePayload";
 import { FIX_PROMPT_KEY } from "./constants/waiting";
 import { assembleFixLogs } from "./utils/fixLogs";
 import type { PipelineInput } from "./schema";
@@ -96,9 +97,9 @@ export class GateFixRunner {
       { pipelineId, attempt },
     );
 
-    let result: Awaited<ReturnType<typeof this.runner.executeRun>>;
+    let run: Awaited<ReturnType<typeof this.runner.executeRun>>;
     try {
-      result = await this.runner.executeRun(
+      run = await this.runner.executeRun(
         ctx,
         node.id,
         () =>
@@ -116,13 +117,28 @@ export class GateFixRunner {
       throw e;
     }
 
-    await this.support.saveArtifact(
-      node.id,
-      ctx.flow.id,
-      "fix",
-      result.result.result ?? "",
-      { pipelineId, attempt },
-    );
+    await this.support.transaction(async (tx) => {
+      await this.support.saveArtifact(
+        node.id,
+        ctx.flow.id,
+        "fix",
+        run.result.result ?? "",
+        { pipelineId, attempt },
+        undefined,
+        tx,
+      );
+      if (hasRunUsage(run.usage)) {
+        await this.support.saveArtifact(
+          node.id,
+          ctx.flow.id,
+          ARTIFACT_KIND.USAGE,
+          JSON.stringify(runUsagePayload(run.usage)),
+          undefined,
+          undefined,
+          tx,
+        );
+      }
+    });
     await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,

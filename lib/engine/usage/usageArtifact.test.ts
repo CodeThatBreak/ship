@@ -15,6 +15,7 @@ const { db } = await import("../../db/app");
 beforeAll(resetTestDatabase);
 const { AgentRunner } = await import("../harness/agentRunner/agentRunner");
 const { AgentTemplateNode } = await import("../nodes/kinds/agent/agentTemplateNode");
+const { PlanNode } = await import("../nodes/kinds/plan/planNode");
 const { flowCtxHelper } = await import("../nodes/shared/runContext");
 const { nodeSupport } = await import("@/lib/composition/container");
 const { usageTracker } = await import("../harness/usageTracker");
@@ -26,7 +27,10 @@ const { hasRunUsage, runUsagePayload } = await import("./runUsagePayload");
 const now = () => new Date().toISOString();
 
 /** A task + flow (+ one node row for artifact writes); returns the node row id. */
-const seedFlow = async (flowId: string): Promise<string> => {
+const seedFlow = async (
+  flowId: string,
+  node: { key: string; type: string } = { key: "agent_1", type: "agent" },
+): Promise<string> => {
   const taskId = `task_${flowId}`;
   await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -52,8 +56,8 @@ const seedFlow = async (flowId: string): Promise<string> => {
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId,
     flowId,
-    "agent_1",
-    "agent",
+    node.key,
+    node.type,
     "running",
     now(),
     now(),
@@ -151,6 +155,56 @@ describe("Agent run usage → a `usage` artifact (Task 21 — Invariant F2)", ()
       inputTokens: 1500, outputTokens: 300,
       cacheReadTokens: 800, cacheWriteTokens: 400,
       costCents: 12, estimated: true, durationMs: 42000,
+    });
+  });
+
+  it("a plan turn with usage persists ONE usage artifact on the plan node", async () => {
+    const flowId = "flw_plan_usage";
+    const nodeId = await seedFlow(flowId, { key: "plan", type: "plan" });
+    const node = new PlanNode(
+      nodeSupport,
+      new UsageTestRunner({
+        result: {
+          status: "finished",
+          result: JSON.stringify({
+            reply: "Planned.",
+            plan: {
+              markdown: "# Plan",
+              steps: [{ title: "Implement the fix", detail: "", files: [], branch: null }],
+            },
+          }),
+        },
+        usage: {
+          model: "claude-sonnet-4",
+          inputTokens: 900,
+          outputTokens: 200,
+          cacheReadTokens: 100,
+          cacheWriteTokens: 0,
+          costCents: 7,
+          estimated: true,
+          durationMs: 12000,
+          tokens: 1100,
+        },
+      }),
+    );
+
+    await node.chat(usageCtx(flowId), "Plan the implementation");
+
+    const rows = await testAll<{ content: string; node_id: string }>(
+      `SELECT content, node_id FROM artifacts WHERE flow_id=$1 AND kind='usage'`,
+      flowId,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.node_id).toBe(nodeId);
+    expect(JSON.parse(rows[0]?.content ?? "{}")).toEqual({
+      model: "claude-sonnet-4",
+      inputTokens: 900,
+      outputTokens: 200,
+      cacheReadTokens: 100,
+      cacheWriteTokens: 0,
+      costCents: 7,
+      estimated: true,
+      durationMs: 12000,
     });
   });
 

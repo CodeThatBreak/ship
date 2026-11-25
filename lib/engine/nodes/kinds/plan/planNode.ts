@@ -212,7 +212,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
     await this.support.setNode(node.id, { input: JSON.stringify(finalInputPrompt) });
 
-    const { result } = await this.runner.executeRun(
+    const { result, usage } = await this.runner.executeRun(
       ctx,
       node.id,
       () =>
@@ -245,7 +245,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       }
 
       if (applied.outcome) {
-        await this.applyOutcome(ctx, applied.outcome, {
+        await this.applyOutcome(ctx, this.withRunUsage(applied.outcome, usage), {
           fenceSuperseded: Boolean(attemptId),
           attemptId,
         });
