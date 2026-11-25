@@ -46,6 +46,7 @@ A task is done only when all of these are true:
 - No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
 - Ask before changing `prisma/schema.prisma`. Schema changes must be coordinated with the JSONB payload validators in `lib/db/rows.ts`, and land as a Prisma migration (`prisma migrate dev`). Enum values are sticky (removal is hard) — get status vocabularies right at authoring time.
 - Secrets and env values come only from `lib/config.ts`. Never hardcode them and never commit `.env`.
+- **Never hand `process.env` to a child process that acts on a developer's checkout.** The Next server pins `NODE_ENV=production` for its whole process (`next/dist/bin/next`), so an inherited marker makes repo hooks take their CI branch (a `yarn validate` with no diff base checks nothing and exits 0) and makes `npm ci`/`yarn` omit devDependencies. Use `childProcessEnv()` (`lib/git/constants/childProcessEnv.ts`), which drops the marker. For agent shells there is no per-run env seam in `@cursor/sdk`, so local agent runs execute in a dedicated host process (`worker/localAgentHost.ts`) that pins its NODE_ENV-derived config and then removes the marker — do not move that work back in-process.
 - Never edit `components/ui/` (shadcn primitives) unless the task explicitly requires it.
 
 ---

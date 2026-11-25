@@ -1,11 +1,25 @@
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+
 import { defineConfig } from "vitest/config";
+
+/**
+ * Test database config comes from the repo `.env` (TEST_DATABASE_URL /
+ * DATABASE_URL). Vitest does not populate `process.env` from `.env` on its
+ * own, so load it here — this runs in the main process and in every worker,
+ * keeping `tests/globalSetup.ts` on the same Postgres instance (and port) the
+ * app and the Prisma CLI use.
+ */
+const repoRoot = fileURLToPath(new URL(".", import.meta.url));
+const envFile = new URL("./.env", import.meta.url);
+if (fs.existsSync(envFile)) process.loadEnvFile(fileURLToPath(envFile));
 
 /**
  * Unit tests for lib/ (server-only modules). "server-only" throws outside a
  * React server bundle, so it is aliased to an empty stub under vitest.
  */
 export default defineConfig({
+  root: repoRoot,
   // component tests import .tsx panels; tsconfig's `jsx: preserve` otherwise
   // leaves JSX in the source and Vite's import analysis rejects it
   oxc: { jsx: { runtime: "automatic" } },

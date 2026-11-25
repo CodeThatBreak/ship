@@ -16,12 +16,11 @@
  * once, and idles — retrying periodically, so a dead holder is replaced.
  * Liveness and writer state are visible at the web process's `/api/health`.
  */
-import { loadEnvConfig } from "@next/env";
-import path from "node:path";
-
-// load `.env` exactly like the Next dev/start wrappers do (DATABASE_URL,
-// GITLAB_WEBHOOK_SECRET, …) before anything reads the environment
-loadEnvConfig(path.resolve(import.meta.dirname, ".."), false);
+// `.env` must be loaded before anything reads the environment. ESM evaluates
+// all imports before this module's body, so the load has to be an import
+// itself — `worker/loadEnv.ts` — placed ahead of every env-reading import
+// (a bare `loadEnvConfig(...)` call here would run too late).
+import "./loadEnv";
 
 import { config } from "@/lib/config";
 import { prisma } from "@/lib/db/prismaClient";

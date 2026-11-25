@@ -91,9 +91,12 @@ export class WaitStore {
 
   /**
    * Arm a `wait_for` wait on a pending node: the `armWait` transition moves
-   * it to `waiting` and stamps `wait_until` in the same conditional UPDATE.
-   * Timer/comments waits carry a deadline (app clock at arm time — only the
-   * sweep compares, and it compares on DB time); webhook waits are indefinite
+   * it to `waiting` and stamps `wait_until` in the same conditional UPDATE
+   * (atomic — a crash can never leave a `waiting` node with no deadline).
+   * Timer/comments deadlines are measured from DB-server time, because the
+   * sweep compares `wait_until <= now()` on that clock: an app-clock base
+   * would leave a fresh wait un-fireable for as long as the two servers
+   * disagree (the clock-skew rule). Webhook waits are indefinite
    * (`wait_until` stays null) and bind an inbound hook instead.
    */
   async armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): Promise<void> {
@@ -103,7 +106,7 @@ export class WaitStore {
     const patch: Record<string, unknown> = {};
     if (wait === "timer" || wait === "comments") {
       const mins = minutes ?? (wait === "comments" ? 10 : 1);
-      patch.wait_until = new Date(Date.now() + mins * 60_000);
+      patch.wait_until = new Date((await this.dbNowMillis()) + mins * 60_000);
     }
     // the authority announces the arm with the wait-specific detail line
     await this.host.setNodeStatus(flowId, nodeKey, "armWait", {
@@ -204,6 +207,23 @@ export class WaitStore {
     this.host.bg(flowId, nodeKey, () =>
       this.host.startNodeStage(flowId, nodeKey, { resumeWaiting: true, source: TRIGGER_SOURCE.POLLER }).then(() => {})
     );
+  }
+
+  /**
+   * The database server's current time in epoch milliseconds. Deadlines that
+   * are later compared with `now()` must be derived from this rather than the
+   * app clock (the clock-skew rule): the app and Postgres can disagree by
+   * seconds, and a comparison across the two clocks either fires a wait early
+   * or — the common case — leaves it un-fireable until the skew elapses.
+   *
+   * Contained raw (orm-migration containment list): reading the DB clock
+   * requires a query; Prisma's query API has no "server now()" expression.
+   */
+  private async dbNowMillis(): Promise<number> {
+    const [row] = await db.prisma.$queryRawUnsafe<{ now: bigint }[]>(
+      `SELECT (extract(epoch from now()) * 1000)::bigint AS now`,
+    );
+    return Number(row.now);
   }
 
   /**

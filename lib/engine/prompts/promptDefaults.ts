@@ -5,7 +5,7 @@ import { AgentOutputError } from "../nodes/shared/agent/outputError/outputErrorE
 import {
   PLAN_TURN_OUTPUT_JSON_SCHEMA,
 } from "../nodes/kinds/plan/schema";
-import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/schema";
+import { REVIEW_RESPONSE_JSON_SCHEMA } from "../nodes/kinds/review/schema";
 
 /**
  * The default prompt templates as an explicit three-part split:
@@ -247,11 +247,13 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
         text: [
           `You are a senior engineer reviewing a merge request for {{ticket_type}} {{ticket_key}}.`,
           `Review the diff below.`,
-          `Only flag genuine issues (bugs, correctness, security, meaningful maintainability). If none, return [].`,
+          `Only flag genuine issues (bugs, correctness, security, meaningful maintainability).`,
+          `A clean diff is a real answer: reply with verdict "approve" and an empty comments list. Never invent a finding to fill the list.`,
+          `A finding you report implies verdict "request_changes" — and request_changes with no comments is a contradiction.`,
           ``,
-          // the schema-generated directive (step 05) — the review response is
-          // an ARRAY, so the directive carries the "array" shape
-          AgentOutputError.directive(REVIEW_COMMENTS_JSON_SCHEMA, "array"),
+          // the schema-generated directive (step 05) — the response is one
+          // object carrying the verdict and the comment list
+          AgentOutputError.directive(REVIEW_RESPONSE_JSON_SCHEMA),
         ].join("\n"),
       },
       { kind: "data", text: `Ticket context:\n{{ticket_summary}}\n\nPRD:\n{{ticket_prd}}` },

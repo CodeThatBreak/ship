@@ -9,12 +9,16 @@ import { ARTIFACT_KIND, EVENT_KIND } from "../../../constants/vocabulary";
 import { FACT_KIND } from "../../../facts/types/facts";
 import { configNumber, configString } from "../../../templates/nodeConfig";
 import {
-  parseReviewComments,
+  parseReviewResponse,
   readPostedCommentHashes,
   reviewCommentPostHash,
 } from "../../../nodes/kinds/review/reviewComments";
 import { reviewCommentItemSchema, type ReviewCommentItem } from "../../../nodes/kinds/review/schema";
-import { REVIEW_VERDICT_META_KEY, reviewVerdictOf } from "./constants/reviewVerdict";
+import {
+  REVIEW_VERDICT,
+  REVIEW_VERDICT_META_KEY,
+  reviewVerdictOf,
+} from "../../../nodes/kinds/review/constants/reviewVerdict";
 import type { EffectVerb } from "../constants/effectVerbs";
 import type { VerbCtx } from "./types/verbDescriptor";
 import { EffectContractViolation } from "./effectContractViolation";
@@ -79,8 +83,14 @@ export class PublishReviewComments {
     // identity only, so the node row is the one read model both dispatch
     // paths (the declarative wildcard and the panel verb door) share
     const node = await this.support.nodeByKey(ctx.flowId, ctx.nodeKey);
-    const comments = commentsFromOutput(node.output ?? null);
+    const output = node.output ?? null;
+    const comments = commentsFromOutput(output);
+    const verdict = reviewVerdictOf(output);
     if (comments.length === 0) {
+      // a clean review is a legitimate no-op: the run approved and flagged
+      // nothing, so there is nothing to post and no host call to make. Only
+      // an output that never said "clean" is the loud contract violation.
+      if (verdict === REVIEW_VERDICT.APPROVE) return false;
       throw await this.refuse(ctx, "the node's output carries no parseable review comments");
     }
     const cr = await this.facts.changeRequestFact(ctx.flowId);
@@ -97,7 +107,6 @@ export class PublishReviewComments {
     const style = configString(config, "comment_style") === "summary" ? "summary" : "inline";
     const maxComments = configNumber(config, "max_comments", 0);
     const effective = maxComments > 0 ? comments.slice(0, maxComments) : comments;
-    const verdict = reviewVerdictOf(node.output ?? null);
 
     const prev = await this.support.latestArtifact(ctx.flowId, ARTIFACT_KIND.REVIEW, { nodeType: node.type });
     const postedHashes = new Set(readPostedCommentHashes(prev?.meta));
@@ -231,8 +240,8 @@ const commentsFromOutput = (output: Record<string, unknown> | null): ReviewComme
   }
   for (const value of Object.values(output)) {
     if (typeof value === "string" && value.trim()) {
-      const fromText = parseReviewComments(value);
-      if (fromText.comments.length > 0) return fromText.comments;
+      const fromText = parseReviewResponse(value);
+      if (fromText.outcome === "commented") return fromText.comments;
     }
   }
   return [];

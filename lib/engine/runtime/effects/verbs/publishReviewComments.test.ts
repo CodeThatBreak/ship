@@ -14,7 +14,7 @@ const { TRIGGER_SOURCE } = await import("../../triggers/constants/triggerSources
 const { verbRegistry } = await import("./verbWiring");
 const { EffectContractViolation } = await import("./effectContractViolation");
 const { ARTIFACT_KIND } = await import("../../../constants/vocabulary");
-const { REVIEW_VERDICT } = await import("./constants/reviewVerdict");
+const { REVIEW_VERDICT } = await import("../../../nodes/kinds/review/constants/reviewVerdict");
 const { FLOW_STATUS } = await import("@/constants/flow");
 const { testGet, testRun } = await import("@/tests/helpers/rawTestDb");
 const { FlowHarness } = await import("@/tests/helpers/flowHarness");
@@ -222,6 +222,23 @@ describe("publish_review_comments verb (task 19 — design §4.2 use case 7)", (
       verbRegistry.run(EFFECT_VERB.PUBLISH_REVIEW_COMMENTS, verbCtxOf(flowId, "review", templateId)),
     ).rejects.toThrow(EffectContractViolation);
 
+    expect(git.calls.length).toBe(before);
+  });
+
+  it("a clean review (approve, no comments) is a no-op — not a contract violation", async () => {
+    const templateId = await seedVerbTemplate({ effects: { afterSuccess: [EFFECT_VERB.PUBLISH_REVIEW_COMMENTS] } });
+    const flowId = await harness.seedInlineFlow([{ key: "review", def: templateId }], []);
+    await seedChangeRequestFact(flowId, "feat/clean", 25);
+    const before = git.calls.length;
+
+    await harness.setNodeOutputForFixture(flowId, "review", FLOW_STATUS.DONE, {
+      verdict: REVIEW_VERDICT.APPROVE,
+      comments: [],
+    });
+    const ran = await verbRegistry.run(EFFECT_VERB.PUBLISH_REVIEW_COMMENTS, verbCtxOf(flowId, "review", templateId));
+
+    // nothing to post: the verb reports "claimed nothing" and never calls the host
+    expect(ran).toBe(false);
     expect(git.calls.length).toBe(before);
   });
 

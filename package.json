@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "node scripts/run-next-local.mjs dev",
     "build": "next build",
+    "postinstall": "prisma generate --config prisma7.config.ts",
+    "prebuild": "prisma generate --config prisma7.config.ts",
     "start": "node scripts/run-next-local.mjs start",
     "worker": "tsx --tsconfig worker/tsconfig.json worker/main.ts",
     "typecheck": "tsc --noEmit",

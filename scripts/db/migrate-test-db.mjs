@@ -6,11 +6,17 @@
  * deploy` with DATABASE_URL pointed at it.
  */
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
+
+// `pg` and the Prisma CLI do not read `.env` on their own; load it so the test
+// database lives on the same Postgres instance (and port) as the app's.
+const envFile = path.join(root, ".env");
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 /** Test database URL (TEST_DATABASE_URL overrides — mirrors tests/helpers/testDatabase.ts). */
 const testUrl =

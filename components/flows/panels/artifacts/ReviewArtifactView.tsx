@@ -25,6 +25,20 @@ export const ReviewArtifactView = ({ artifact }: { artifact: ArtifactPayload }) 
   const posted = typeof artifact.meta?.[REVIEW_FACT_META.POSTED] === "number"
     ? (artifact.meta[REVIEW_FACT_META.POSTED] as number)
     : payload.comments.length;
+  if (payload.comments.length === 0) {
+    return (
+      <div>
+        {verdict && (
+          <Badge className={`mb-2 ${REVIEW_VERDICT_VARIANT[verdict] ?? ""}`}>
+            {verdict.replaceAll("_", " ")} · {posted} posted
+          </Badge>
+        )}
+        <p className="text-sm text-muted-foreground">
+          Nothing to flag — the review approved this change and posted no comments.
+        </p>
+      </div>
+    );
+  }
   return (
     <div>
       {verdict && (

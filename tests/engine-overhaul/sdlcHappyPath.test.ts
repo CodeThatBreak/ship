@@ -42,9 +42,10 @@ const PLAN_TURN = JSON.stringify({
   },
 });
 
-const REVIEW_COMMENTS = JSON.stringify([
-  { file: "a.ts", line: 3, body: "nit: rename this" },
-]);
+const REVIEW_COMMENTS = JSON.stringify({
+  verdict: "request_changes",
+  comments: [{ file: "a.ts", line: 3, body: "nit: rename this" }],
+});
 
 describe("SDLC happy path (fake ports)", () => {
   it("plan → approve → build → gate → review → resolve arms", async () => {

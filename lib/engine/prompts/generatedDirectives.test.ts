@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PROMPT_TEMPLATES, composeTemplate } from "./promptDefaults";
 import { AgentOutputError } from "../nodes/shared/agent/outputError/outputErrorExports";
 import { PLAN_TURN_OUTPUT_JSON_SCHEMA } from "../nodes/kinds/plan/schema";
-import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/schema";
+import { REVIEW_RESPONSE_JSON_SCHEMA } from "../nodes/kinds/review/schema";
 
 /** The contract block(s) of one template, joined the way the assembly does. */
 const contractBlock = (key: string): string =>
@@ -42,10 +42,12 @@ describe("schema-generated output directives (step 05 prompt audit)", () => {
     }
   });
 
-  it("the review contract advertises the comment array through the generated directive", () => {
+  it("the review contract advertises the response object through the generated directive", () => {
     const contract = contractBlock("review");
-    expect(contract).toContain(AgentOutputError.directive(REVIEW_COMMENTS_JSON_SCHEMA, "array").trim());
-    expect(contract).toContain("one JSON array");
+    expect(contract).toContain(AgentOutputError.directive(REVIEW_RESPONSE_JSON_SCHEMA).trim());
+    expect(contract).toContain("one JSON object");
+    // the clean answer is named, so an empty list is never mistaken for a miss
+    expect(contract).toContain('"approve"');
     expect(contract).not.toContain("Return a JSON array ONLY");
   });
 

@@ -21,8 +21,9 @@ import { mcpSourcesSchema } from "../../../templates/schemas/mcpSources";
 import { configNumber, configString, mcpSourcesOf, mcpSourceConfigFields } from "../../../templates/nodeConfig";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
 import { ReviewConsumes, ReviewInput, ReviewOutput } from "./schema";
+import { REVIEW_VERDICT_META_KEY } from "./constants/reviewVerdict";
 import {
-  parseReviewComments,
+  parseReviewResponse,
   readPostedCommentHashes,
   reviewCommentPostHash,
 } from "./reviewComments";
@@ -220,11 +221,12 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
 
   /**
    * The finalize pipeline shared by the live run and restart recovery: parse
-   * the agent's comment list (an empty or unparseable reply is a FAILED node —
-   * missing output is a first-class state, never a silent done-with-0),
-   * post the comments through the `postedHashes` ledger (idempotent — a
-   * recovery re-run posts only what the ledger does not hold), and build the
-   * outcome.
+   * the agent's `{verdict, comments}` response (a clean `approve` with no
+   * comments is a DONE run that posts nothing; an unparseable reply, or a
+   * `request_changes` that names no change, is a FAILED node — missing output
+   * is a first-class state, never a silent done-with-0), post the comments
+   * through the `postedHashes` ledger (idempotent — a recovery re-run posts
+   * only what the ledger does not hold), and build the outcome.
    */
   private async reviewOutcome(
     ctx: FlowCtx,
@@ -241,15 +243,14 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     },
   ): Promise<RunOutcome> {
     const { repoUrl, mrIid, host, changes, changeRequest } = hostCtx;
-    const parsed = parseReviewComments(result.result ?? "");
-    if (parsed.warning) {
-      await this.support.emit(ctx.flow.id, node.id, "log", parsed.warning);
-    }
-    if (parsed.comments.length === 0) {
-      // step 05: an empty or unparseable reply is a failed node — the agent
-      // produced no reviewable output; publishing `done` with 0 comments
-      // fabricated a success
-      const message = parsed.warning ?? "review could not parse comments from agent output";
+    const parsed = parseReviewResponse(result.result ?? "");
+    if (parsed.outcome === "invalid") {
+      // step 05: an unparseable reply — or a change request that names no
+      // change — is a failed node; publishing `done` with 0 comments
+      // fabricated a success. The raw reply stays the artifact content so the
+      // developer can see exactly what came back.
+      const message = parsed.warning;
+      await this.support.emit(ctx.flow.id, node.id, EVENT_KIND.LOG, message);
       return {
         status: "failed" as const,
         output: this.outputSchema.parse({ comments: 0, branchName: input.branchName ?? undefined }),
@@ -264,11 +265,16 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       };
     }
 
+    const { verdict } = parsed;
     const commentStyle = configString(config, "comment_style") === "summary" ? "summary" : "inline";
     const prevArt = await this.support.latestArtifact(ctx.flow.id, "review", { nodeType: NODE_KEYS.REVIEW });
     const postedHashes = new Set(readPostedCommentHashes(prevArt?.meta));
     const maxComments = configNumber(config, "max_comments", 0);
     const effective = maxComments > 0 ? parsed.comments.slice(0, maxComments) : parsed.comments;
+    // the artifact content is the normalized response (the verb's projection
+    // shape), so the panel renders threads — or the clean empty state — from
+    // one shape, never the agent's prose
+    const content = JSON.stringify({ verdict, comments: effective });
 
     let posted = 0;
     const newHashes: string[] = [...postedHashes];
@@ -278,11 +284,12 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
         node.id,
         ctx.flow.id,
         "review",
-        result.result ?? "",
+        content,
         {
           posted: newHashes.length,
           postedHashes: newHashes,
           mrIid,
+          [REVIEW_VERDICT_META_KEY]: verdict,
           branchName: input.branchName ?? undefined,
         },
       );
@@ -335,8 +342,8 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
               output: this.outputSchema.parse({ comments: posted, branchName: input.branchName ?? undefined }),
               artifact: {
                 kind: "review",
-                content: result.result ?? "",
-                meta: { posted, postedHashes: newHashes, mrIid, branchName: input.branchName ?? undefined },
+                content,
+                meta: { posted, postedHashes: newHashes, mrIid, [REVIEW_VERDICT_META_KEY]: verdict, branchName: input.branchName ?? undefined },
               },
               event: message,
               eventData: { error: detail },
@@ -353,21 +360,29 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       }
     }
 
+    // a clean review is a real outcome — the verdict carries it, and the
+    // artifact's empty comment list renders as the "nothing to flag" state
+    const clean = parsed.outcome === "clean";
     return {
       status: "done" as const,
-      output: this.outputSchema.parse({ comments: posted, branchName: input.branchName ?? undefined }),
+      output: this.outputSchema.parse({ comments: posted, verdict, branchName: input.branchName ?? undefined }),
       artifact: {
         kind: "review",
-        content: result.result ?? "",
+        content,
         meta: {
           posted,
           postedHashes: newHashes,
           mrIid,
+          [REVIEW_VERDICT_META_KEY]: verdict,
           branchName: input.branchName ?? undefined,
         },
       },
-      event: `review complete${input.branchName ? ` (${input.branchName})` : ""}: ${posted} comment(s) posted`,
-      reply: result.result ?? `Posted ${posted} comment(s).`,
+      event: clean
+        ? `review clean${input.branchName ? ` (${input.branchName})` : ""}: approved with no comments`
+        : `review complete${input.branchName ? ` (${input.branchName})` : ""}: ${posted} comment(s) posted`,
+      reply: clean
+        ? "The review found nothing to flag — the change looks good."
+        : result.result ?? `Posted ${posted} comment(s).`,
     };
   }
 

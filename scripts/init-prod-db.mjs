@@ -12,11 +12,17 @@
  * Usage: npm run db:init:prod   (idempotent — safe to re-run)
  */
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+// The Prisma CLI and `pg` do not read `.env` on their own; load it so this
+// script targets the same Postgres instance (and port) the app does.
+const envFile = path.join(root, ".env");
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 /** Production database URL — mirrors DatabaseConfig.url()'s production default. */
 const prodUrl =

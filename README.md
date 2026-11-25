@@ -301,6 +301,9 @@ lib/                    strict OOP: one class per responsibility; services are p
                         enums, JSONB) + prisma/migrations/
 worker/main.ts          the worker process (npm run worker): writer advisory lock, then the
                         poller + reconciler loop + job sweeps — all time-driven behavior
+worker/localAgentHost.ts  the local agent host: spawned by the web process over IPC, it runs
+                        local agent loops so agent shells never inherit the server's NODE_ENV
+                        (see docs/architecture/agent-harness.md)
 data/                   (sqlite-era files; the one-off scripts/migrate-sqlite-to-pg.mjs
                         reads a legacy devflow.db to load its data into Postgres)
 workspaces/             per-flow dirs: git worktrees for local agent runs (Phase 1 worktrees —

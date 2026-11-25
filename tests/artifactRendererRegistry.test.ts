@@ -378,6 +378,19 @@ describe("review artifact renderer (task 19)", () => {
     expect(html).toContain("approve");
   });
 
+  it("renders the clean state for a review that approved with no comments", () => {
+    const html = renderReview({
+      content: JSON.stringify({ verdict: "approve", comments: [] }),
+      meta: { posted: 0, mrIid: 21, review_verdict: "approve" },
+    });
+
+    // the structured renderer produced the empty state — not the raw JSON body
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("approve");
+    expect(html).toContain("Nothing to flag");
+    expect(html).not.toContain("Discussion threads");
+  });
+
   it("falls back to the raw body when the content is not a review payload", () => {
     const html = renderReview({ content: "not json" });
 

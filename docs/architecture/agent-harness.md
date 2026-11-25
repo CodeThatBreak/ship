@@ -10,7 +10,7 @@ last_reviewed: 2026-11-01
 
 ## Summary
 
-The agent harness is the neutral surface the engine drives coding agents through, regardless of where they run. A vendor-neutral `AgentPort` interface abstracts the two built-in runtimes — Cursor cloud (durable agent VMs) and Cursor local (in-process agent loop over the same SDK) — and the `AgentRunner` normalizes everything around them: model resolution, run-row persistence, event streaming, and usage/cost capture. Node definitions never talk to a vendor SDK directly.
+The agent harness is the neutral surface the engine drives coding agents through, regardless of where they run. A vendor-neutral `AgentPort` interface abstracts the two built-in runtimes — Cursor cloud (durable agent VMs) and Cursor local (agent loop in a dedicated host process over the same SDK, so agent shells do not inherit the server's `NODE_ENV`) — and the `AgentRunner` normalizes everything around them: model resolution, run-row persistence, event streaming, and usage/cost capture. Node definitions never talk to a vendor SDK directly.
 
 ## Architecture
 
@@ -37,7 +37,8 @@ Normalized shapes mirror the SDK: statuses `"finished" | "error" | "cancelled"`,
 ### Providers
 
 - **Cursor cloud** (`lib/integrations/cursor/`) — wraps the cloud client (`client.ts`, credentials in `credentials.ts`): durable handles survive restarts, runs re-attach and bill usage; `autoCreatePR` and custom subagents supported.
-- **Cursor local** (`lib/integrations/localAgent/`) — in-process agent loop (`agent.ts`) over the shared SDK runtime (`lib/integrations/cursorSdk.ts`). Runs are not durable; recovery probes the persisted agent session via `inspectSession`, and usage is account-gated (no billed cost). Fallback models when the catalog is unreachable: `composer-2.5`, `auto`.
+- **Cursor local** (`lib/integrations/localAgent/`) — the agent loop runs over the shared SDK runtime (`lib/integrations/cursorSdk.ts`) **inside a dedicated host process**, not the Next server: `@cursor/sdk`'s local runtime builds each shell's environment from its own `process.env` and offers no per-run override, so hosting it in the server would hand every agent shell the server's `NODE_ENV=production` (a repo's validation hook then takes its CI branch, finds no diff base, checks nothing, and exits 0 — and `npm ci` omits devDependencies). `host/hostClient.ts` supervises the child (`worker/localAgentHost.ts`, run via `tsx`) over IPC; the host resolves NODE_ENV-derived config first (`DATABASE_URL`, at-rest key — see `lib/config.ts`), pins the DB URL, then drops the marker for the shells it spawns. The web-side facade (`agent.ts`) owns policy only: branch checkout, timeouts, settings defaults. Runs are not durable; recovery probes the persisted agent session via `inspectSession`, and usage is account-gated (no billed cost). Fallback models when the catalog is unreachable: `composer-2.5`, `auto`.
+- **Child process env** (`lib/git/constants/childProcessEnv.ts`) — the same hazard for the processes DevFlow spawns itself: `GitRunner` and `worktreeSetup.runCommand` (dependency installs) build their env with `childProcessEnv()`, which drops `NODE_ENV`, so hooks and installs behave as they do for a developer.
 - **Model specs** (`lib/modelSpec.ts`) — `"<model-id>[param=value,…]"` strings parsed into SDK `ModelSelection` (fast mode, effort/thinking level, …).
 
 ### Errors (`ports/agentErrors.ts`)
@@ -78,5 +79,7 @@ No direct HTTP surface — nodes consume the harness through `AgentRunNode.execu
 | Usage/cost | `lib/engine/harness/usageTracker.ts`, `pricingSource.ts` |
 | Cloud provider | `lib/integrations/cursor/agentPort.ts`, `client.ts` |
 | Local provider | `lib/integrations/localAgent/agentPort.ts`, `agent.ts` |
+| Local agent host (child process) | `worker/localAgentHost.ts`, `lib/integrations/localAgent/host/` |
+| Child process env policy | `lib/git/constants/childProcessEnv.ts` |
 | Shared SDK runtime | `lib/integrations/cursorSdk.ts` |
 | Model specs | `lib/modelSpec.ts` |

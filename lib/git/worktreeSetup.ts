@@ -17,6 +17,7 @@ import {
   type RepoDepOverrides,
 } from "./depPolicy";
 import { containsPath, samePath } from "./worktrees";
+import { childProcessEnv } from "./constants/childProcessEnv";
 
 /** Path segments that must never be symlinked into a worktree. */
 export const DENIED_SHARED_DIR_SEGMENTS = new Set(["node_modules", ".git"]);
@@ -622,7 +623,10 @@ export async function runCommand(
       cwd,
       shell: process.platform === "win32" ? true : "/bin/bash",
       detached: process.platform !== "win32",
-      env: process.env,
+      // DevFlow's NODE_ENV is Next's, not the install's: under production
+      // `npm ci`/`yarn` omit devDependencies, so the worktree lands without
+      // husky/prettier/test runners. The child gets a clean env.
+      env: childProcessEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
 

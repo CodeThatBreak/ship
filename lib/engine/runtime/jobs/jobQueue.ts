@@ -62,11 +62,31 @@ export class JobQueue {
           : (input.payload as Prisma.InputJsonValue),
         status: JOB_STATUS.QUEUED,
         dedupKey: input.dedupKey ?? null,
-        runAt: input.runAt ?? new Date(),
+        // An immediate job is "due now" — but `claimNext` tests
+        // `run_at <= now()` on the DB clock, so defaulting to the app clock
+        // leaves a fresh job unclaimable for as long as the two servers
+        // disagree (the clock rule). Callers that pass an explicit `runAt`
+        // own that decision.
+        runAt: input.runAt ?? new Date(await this.dbNowMillis()),
       }],
       skipDuplicates: true,
     });
     return { id, deduplicated: created.count === 0 };
+  }
+
+  /**
+   * The database server's current time in epoch milliseconds. Due-times that
+   * {@link claimNext}/{@link reclaimExpired} later compare with `now()` must be
+   * derived from this rather than the app clock (the clock rule).
+   *
+   * Contained raw (target-architecture §8, Invariant 7): reading the DB clock
+   * needs a query; Prisma's query API has no "server now()" expression.
+   */
+  private async dbNowMillis(): Promise<number> {
+    const [row] = await this.database.prisma.$queryRawUnsafe<{ now: bigint }[]>(
+      `SELECT (extract(epoch from now()) * 1000)::bigint AS now`,
+    );
+    return Number(row.now);
   }
 
   /**

@@ -12,10 +12,12 @@
 export const RAW_SQL_CONTAINMENT = [
   // SKIP LOCKED atomic claims (`claimNext`/`claimById`/`reclaimExpired`:
   // UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED)) plus
-  // `requeueWithBackoff` (run_at interval arithmetic on DB time) and
+  // `requeueWithBackoff` (run_at interval arithmetic on DB time),
   // `failExhausted` (lease_until compared to DB now() + UPDATE…RETURNING in
-  // one atomic statement) — no Prisma equivalent for claim-and-stamp-lease
-  // in a single statement.
+  // one atomic statement), and `dbNowMillis` (the DB clock read that dates a
+  // defaulted `run_at` so `claimNext`'s `run_at <= now()` is compared
+  // same-clock — the clock rule) — no Prisma equivalent for
+  // claim-and-stamp-lease in a single statement.
   "lib/engine/runtime/jobs/jobQueue.ts",
   // Lease stamps (`stampNodeLease`/`stampRunLease`): `lease_until = now() +
   // make_interval(secs => $n)` — interval arithmetic on the DB-server clock
@@ -43,7 +45,9 @@ export const RAW_SQL_CONTAINMENT = [
   // guarded by flow_id so a stale node id cannot stamp a foreign flow's row).
   "lib/engine/runtime/worktreeLifecycle/worktreeActivity.ts",
   // `dueWaitingNodes` (`wait_until <= now()` on the DB clock — due-ness is a
-  // DB-clock decision) and `deferDebounceWait` (`make_interval`).
+  // DB-clock decision), `deferDebounceWait` (`make_interval`), and
+  // `dbNowMillis` (the DB clock read that dates an armed wait's deadline, so
+  // `armNodeWait` and the sweep share one clock).
   "lib/engine/runtime/waits/waitStore.ts",
   // `persistUsage`: column-wise COALESCE partial update — one UPDATE that
   // overwrites only the provided columns; no Prisma query-API equivalent.

@@ -1,13 +1,7 @@
 import "server-only";
 
-import {
-  cursorAgent,
-  type AgentRunResult,
-  type SDKSettingSource,
-  type StreamCallbacks,
-  type TokenUsage,
-} from "../cursorSdk";
-import { parseModelSpec } from "../../modelSpec";
+import type { SDKSettingSource } from "../cursorSdk";
+import type { AgentRunResult } from "../../engine/ports/agentPort/types/agentPort";
 import { db, type Database } from "../../db/app";
 import { pinnedProcessService } from "../../composition/processServices";
 import { SETTINGS_KEYS } from "@/constants/settings";
@@ -15,6 +9,8 @@ import { settingBoolean, settingNumber } from "../../schemas/settingValues";
 import { GIT_FETCH_TIMEOUT_MS, runGit } from "../../git/boundedExec";
 import { assertValidBranchName } from "../../git/branchName";
 import { AgentRunTimeoutError } from "../../engine/ports/agentErrors";
+import { localAgentHost } from "./host/hostPin";
+import type { HostStreamEvent } from "./host/protocol";
 
 export interface LocalAgentInput {
   prompt: string;
@@ -69,20 +65,26 @@ export interface LocalSessionInspection {
 }
 
 /**
- * Local agent integration: drives local agent runs through the @cursor/sdk
- * local runtime (files stay on disk; the agent loop runs in-process) via the
- * unified CursorAgentService, plus branch checkout and settings.
+ * Local agent integration (web side).
  *
- * This adapter adds the local-only concerns (branch checkout, worktree cwd,
- * settings defaults) and maps SDK results into the LocalRunResult shape the
- * engine consumes.
+ * Runs do NOT execute in this process: the @cursor/sdk local runtime builds its
+ * shell environment from the hosting process's `process.env`, and a Next server
+ * pins `NODE_ENV=production` for itself, so an in-process local run would hand
+ * every agent shell a production marker (see `host/protocol.ts`). This facade
+ * therefore owns the local-only policy — branch checkout, worktree cwd, the run
+ * timeout, settings defaults — and delegates the SDK work to the local-agent
+ * host process via {@link localAgentHost}.
+ *
+ * Must never: import `cursorSdk` directly (that would pull run handles back
+ * into a process whose env is wrong), or let a timeout leave the host's run
+ * alive — `streamRun` always cancels on expiry.
  */
 export class LocalAgentService {
   constructor(private readonly database: Pick<Database, "getSetting">) {}
 
-  /** True if this server process still owns the given local run (false after restart). */
+  /** True if the host still owns the given local run (false after a restart). */
   hasActiveRun(runId: string): boolean {
-    return cursorAgent.hasActiveRun(runId);
+    return localAgentHost.hasActiveRun(runId);
   }
 
   async defaults(): Promise<{
@@ -99,11 +101,11 @@ export class LocalAgentService {
 
   /**
    * Whether the local runtime is usable: the @cursor/sdk runs the agent loop
-   * in-process (Node >= 22.13) and authenticates with CURSOR_API_KEY, so the
+   * with Node >= 22.13 and authenticates with a stored Cursor API key, so the
    * cursor-agent CLI is no longer required.
    */
   async cliAvailable(): Promise<boolean> {
-    return cursorAgent.available();
+    return localAgentHost.available();
   }
 
   /**
@@ -112,12 +114,15 @@ export class LocalAgentService {
    * FALLBACK_MODELS.
    */
   async listModels(): Promise<string[] | null> {
-    return cursorAgent.listModels();
+    const catalog = await this.listCatalog();
+    if (!catalog) return null;
+    const ids = catalog.map((m) => m.id).filter(Boolean);
+    return ids.length ? ids : null;
   }
 
   /** Full catalog (with parameters/variants for fast mode + effort UI). */
   async listCatalog() {
-    return cursorAgent.listCatalog();
+    return localAgentHost.catalog();
   }
 
   /** Best-effort: make sure the workspace is on the requested branch. */
@@ -135,40 +140,26 @@ export class LocalAgentService {
   }
 
   /**
-   * Split a model spec into a ModelSelection: "composer-2.5[fast=false]" →
-   * { id: "composer-2.5", params: [{ id: "fast", value: "false" }] }.
-   */
-  private modelSelection(raw: string | undefined) {
-    return parseModelSpec(raw);
-  }
-
-  /**
-   * Spawn a local agent run on the SDK runtime.
+   * Spawn a local agent run in the host process.
    *
-   * Performs branch checkout, creates/resumes the agent, and issues the first
-   * send before returning so agentId/runId are real. Consume events and the
-   * final result via streamRun(runId, callbacks).
+   * Performs branch checkout, then creates (or resumes) the agent and issues
+   * the first send, so agentId/runId are real before returning. Consume events
+   * and the final result via streamRun.
    */
   async createRun(
     input: LocalAgentInput,
   ): Promise<{ agentId: string; runId: string }> {
-    if (!(await cursorAgent.available())) {
-      throw new Error(
-        "Local agent runs require Node 22.13+ and the Cursor API key. Set the key in Settings → Integrations → Harness.",
-      );
-    }
     const opts = await this.defaults();
     if (input.branch && input.mode !== "plan") {
       await this.ensureBranch(input.workspace, input.branch).catch(() => {});
     }
 
-    const runCwd = input.cwd ?? input.workspace;
-    return cursorAgent.createRun({
+    return localAgentHost.start({
       prompt: input.prompt,
-      cloud: false,
-      cwd: runCwd,
+      workspace: input.workspace,
+      cwd: input.cwd,
       mode: input.mode,
-      model: this.modelSelection(input.model),
+      model: input.model,
       sandbox: opts.sandbox,
       force: opts.force,
       resumeAgentId: input.sessionId,
@@ -177,31 +168,30 @@ export class LocalAgentService {
   }
 
   /**
-   * Stop an in-process local run (cancels the SDK run). The run's streamRun
-   * rejects, so any executor awaiting it marks its node failed (retryable).
-   * No-op after restart (handle gone) — reconcile handles orphaned nodes.
+   * Stop an in-flight local run. The host's streamRun rejects, so any executor
+   * awaiting it marks its node failed (retryable). No-op for unknown runs.
    */
   cancelRun(runId: string): Promise<boolean> {
-    return cursorAgent.cancelRun(runId);
+    return localAgentHost.cancel(runId);
   }
 
   /**
    * Read a local run's persisted state from the SDK store and reconstruct its
-   * last turn. Used by reconcile after a server restart. Returns null when
-   * the run can't be loaded — callers should fail the node.
+   * last turn. Used by reconcile after a restart. Returns null when the run
+   * can't be loaded — callers should fail the node.
    */
   async inspectSession(
     sessionId: string,
     runId: string,
     workspace: string,
   ): Promise<LocalSessionInspection | null> {
-    return cursorAgent.inspectLocalRun(sessionId, runId, workspace);
+    return localAgentHost.inspect(sessionId, runId, workspace);
   }
 
-  /** Stream events of a local run to completion. */
+  /** Stream events of a local run to completion, enforcing the run timeout. */
   async streamRun(
     runId: string,
-    cb: StreamCallbacks = {},
+    cb: StreamCallbacksLike = {},
   ): Promise<LocalRunResult> {
     const { timeoutMs } = await this.defaults();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -212,14 +202,14 @@ export class LocalAgentService {
       }, timeoutMs);
     });
     try {
-      const { result, agentId } = await Promise.race([
-        cursorAgent.streamRun(runId, cb),
+      const out = await Promise.race([
+        localAgentHost.stream(runId, (event) => dispatchHostEvent(event, cb)),
         onTimeout,
       ]);
       return {
-        result,
-        sessionId: agentId,
-        usage: usageFromResult(result),
+        result: out.result,
+        sessionId: out.agentId || null,
+        usage: out.usage,
       };
     } finally {
       if (timer) clearTimeout(timer);
@@ -227,31 +217,49 @@ export class LocalAgentService {
   }
 
   releaseRun(runId: string): void {
-    cursorAgent.releaseRun(runId);
+    localAgentHost.release(runId);
   }
 }
 
-/** Map an SDK TokenUsage into the engine's LocalUsage shape. */
-function usageFromResult(result: AgentRunResult): LocalUsage | null {
-  const u: TokenUsage | undefined = result.usage;
-  const model = result.model?.id;
-  if (!u && result.durationMs == null && !model) return null;
-  return {
-    inputTokens: u?.inputTokens,
-    outputTokens: u?.outputTokens,
-    cacheReadTokens: u?.cacheReadTokens,
-    cacheWriteTokens: u?.cacheWriteTokens,
-    durationMs: result.durationMs,
-    model,
-    raw: u,
-  };
+/** The stream callbacks consumers pass (mirrors the SDK shape, engine-neutral). */
+export interface StreamCallbacksLike {
+  onStatus?: (s: string) => void;
+  onAssistant?: (text: string) => void;
+  onThinking?: (text: string) => void;
+  onTool?: (
+    name: string,
+    status: string,
+    args?: unknown,
+    callId?: string,
+    extra?: { result?: unknown; truncated?: unknown },
+  ) => void;
 }
+
+/** Fan one host stream event out to the caller's callbacks. */
+const dispatchHostEvent = (event: HostStreamEvent, cb: StreamCallbacksLike): void => {
+  switch (event.kind) {
+    case "status":
+      cb.onStatus?.(event.status);
+      return;
+    case "assistant":
+      cb.onAssistant?.(event.text);
+      return;
+    case "thinking":
+      cb.onThinking?.(event.text);
+      return;
+    case "tool":
+      cb.onTool?.(event.name, event.status, event.args, event.callId, {
+        result: event.result,
+        truncated: event.truncated,
+      });
+      return;
+  }
+};
 
 /**
  * Shared local-agent service — process-pinned via the process-services
- * container (decision Q9): it drives {@link cursorAgent}'s live in-process
- * run handles (stream/cancel/timeout), so it must be the same one instance
- * per process the run registry lives in.
+ * container (decision Q9). The facade is stateless over the pinned host client
+ * (which owns the pending-call map and the single child process).
  */
 export const localAgent = pinnedProcessService(
   "localAgent",

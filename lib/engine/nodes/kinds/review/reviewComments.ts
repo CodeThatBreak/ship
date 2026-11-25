@@ -2,38 +2,51 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { extractJson } from "../../shared/extractJson";
-import { ReviewCommentsSchema, type ReviewCommentItem } from "./schema";
+import { ReviewResponseSchema, type ReviewCommentItem } from "./schema";
+import type { ReviewVerdict } from "./constants/reviewVerdict";
 
-export type ParseReviewCommentsResult = {
-  comments: ReviewCommentItem[];
-  /** Set when the agent text could not be parsed into a valid comment list. */
-  warning?: string;
-};
+/**
+ * What the agent said about the change — three distinct states, because
+ * "nothing to flag" is an answer and a missing answer is not.
+ *
+ * - `clean`: the agent approved and flagged nothing. A successful run that
+ *   posts nothing; the verdict is what makes it legible.
+ * - `commented`: at least one comment to post.
+ * - `invalid`: the reply was not a contract-valid review (empty, unparseable,
+ *   wrong shape, or `request_changes` with nothing to change — an agent that
+ *   asks for changes must name them). The caller fails the node loudly.
+ */
+export type ParsedReviewResponse =
+  | { outcome: "clean"; verdict: ReviewVerdict; comments: [] }
+  | { outcome: "commented"; verdict: ReviewVerdict; comments: ReviewCommentItem[] }
+  | { outcome: "invalid"; warning: string };
 
-/** Pull and validate review comments from agent output (CR-085). */
-export const parseReviewComments = (text: string): ParseReviewCommentsResult => {
+/** Pull and validate the agent's review response (CR-085). */
+export const parseReviewResponse = (text: string): ParsedReviewResponse => {
   const trimmed = (text ?? "").trim();
   if (!trimmed) {
-    return { comments: [], warning: "Review agent returned empty output — no comments posted." };
+    return { outcome: "invalid", warning: "Review agent returned empty output — no comments posted." };
   }
   const parsed = extractJson(trimmed);
   if (parsed == null) {
-    return {
-      comments: [],
-      warning: "Review output had no parseable JSON comment array.",
-    };
+    return { outcome: "invalid", warning: "Review output had no parseable JSON review response." };
   }
-  const result = ReviewCommentsSchema.safeParse(parsed);
+  const result = ReviewResponseSchema.safeParse(parsed);
   if (!result.success) {
     return {
-      comments: [],
-      warning: "Review JSON did not match the expected comment array shape.",
+      outcome: "invalid",
+      warning: "Review JSON did not match the expected {verdict, comments} response shape.",
     };
   }
-  if (result.data.length === 0) {
-    return { comments: [], warning: "Review JSON array was empty." };
+  const { verdict, comments } = result.data;
+  if (comments.length === 0) {
+    if (verdict === "approve") return { outcome: "clean", verdict, comments: [] };
+    return {
+      outcome: "invalid",
+      warning: "Review requested changes but named none — request_changes needs at least one comment.",
+    };
   }
-  return { comments: result.data };
+  return { outcome: "commented", verdict, comments };
 };
 
 /** Stable idempotency key for one MR comment body (CR-086). */

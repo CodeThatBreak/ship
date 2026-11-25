@@ -1,12 +1,14 @@
 import "server-only";
 
 /**
- * The closed review-verdict vocabulary (task 19's optional structured fact):
- * the verdict a review run's output contract may declare alongside its
- * comment list. The `publish_review_comments` verb stamps it into the review
- * artifact's meta, so a downstream decision/gate consumes it through the
- * flow's contract layer (Invariant 5) with the artifact as the
- * human-facing projection. Declarations are data; this set is code — a new
+ * The closed review-verdict vocabulary — the review response's own domain
+ * value, so it lives with the review kind that declares the contract and the
+ * `publish_review_comments` verb that stamps it into the artifact meta reads
+ * it from here (one vocabulary, no drift).
+ *
+ * `approve` with an empty comment list IS the clean review: an explicit
+ * answer, never a bare empty array (which stays a contract miss — see
+ * `parseReviewResponse`). Declarations are data; this set is code — a new
  * verdict is an engineering change here, never a config string.
  */
 export const REVIEW_VERDICT = {
@@ -15,6 +17,12 @@ export const REVIEW_VERDICT = {
 } as const;
 
 export type ReviewVerdict = (typeof REVIEW_VERDICT)[keyof typeof REVIEW_VERDICT];
+
+/** The tuple the zod enum renders from (closes the schema over the constant). */
+export const REVIEW_VERDICTS = [
+  REVIEW_VERDICT.APPROVE,
+  REVIEW_VERDICT.REQUEST_CHANGES,
+] as const;
 
 /** The review artifact meta key the verdict stamps under. */
 export const REVIEW_VERDICT_META_KEY = "review_verdict";
@@ -27,4 +35,4 @@ export const reviewVerdictOf = (output: Record<string, unknown> | null): ReviewV
 };
 
 const isReviewVerdict = (value: string): value is ReviewVerdict =>
-  (Object.values(REVIEW_VERDICT) as readonly string[]).includes(value);
+  (REVIEW_VERDICTS as readonly string[]).includes(value);

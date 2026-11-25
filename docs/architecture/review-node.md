@@ -41,7 +41,7 @@ Engine-only (not serialized to UI):
 - **Entry:** Pipeline green (auto trigger on the `pipeline → review` edge), the panel's "Run AI review" button, a chat message, or `retry` on a failed run.
 - **Surface:** Both — the panel shows "Agent is reviewing the merge request…"; the chat rail streams run events.
 - **Action:** `POST /api/flows/:id/action` with action `review` (optional `prompt` / `promptIsBody` / `model` from the prompt modal), or `POST /api/flows/:id/chat` for a focused re-review.
-- **Outcome:** The agent reads the MR diff and posts comments to the MR; a `review` artifact records what was posted. Unparseable agent output fails the node with a warning event; `[]` or empty output completes with `comments: 0`.
+- **Outcome:** The agent reads the MR diff and posts comments to the MR; a `review` artifact records the response and what was posted. A clean `approve` with no comments completes the node with `comments: 0`; unparseable output — or `request_changes` naming no change — fails the node with a warning event.
 
 ### Phase 3 — Comments published, awaiting resolution
 
@@ -108,7 +108,7 @@ Generic `NodeChat` → `ChatPanel` bound to `node.node_key`; sends go to `POST /
 - `gitHostRegistry` — `getChanges` for the MR diff, `createComment` for posting notes.
 - `mrTargetResolver` — resolves `{ mrIid, mrBranch }` per branch or flow-level.
 - `prompts` (`PromptLibrary`) — assembles the `review` template with ticket context, instructions, and the diff.
-- `parseReviewComments` / `reviewCommentPostHash` / `readPostedCommentHashes` (`reviewComments.ts`) — output parsing and idempotency.
+- `parseReviewResponse` / `reviewCommentPostHash` / `readPostedCommentHashes` (`reviewComments.ts`) — output parsing and idempotency.
 - `AgentRunner` via `AgentRunNode.execute` — runs the agent with `startingRef: mrBranch`.
 
 ### Run lifecycle (`run`)
@@ -116,9 +116,10 @@ Generic `NodeChat` → `ChatPanel` bound to `node.node_key`; sends go to `POST /
 1. Folds the `prompt_body` config knob into the prompt override path.
 2. Resolves the MR target and fetches the diff via `host.getChanges` (capped at 60 000 chars; a truncation note is prepended when GitLab cut the change set).
 3. Assembles the prompt: template key `review`, ticket variables, optional developer `instructions`, the diff block.
-4. `execute` runs the agent; `finalize` parses the output with `parseReviewComments`:
-   - No parseable JSON array (non-empty output) → node `failed`, artifact recorded with `posted: 0`, warning event.
-   - Otherwise posts each comment not already in `postedHashes` (sha256 over `{ mrIid, style, file, line, body }`), honoring `max_comments` and `comment_style` (`summary` posts one combined note). Progress is persisted to the artifact after every post, so a mid-run failure never double-posts on retry.
+4. `execute` runs the agent; `finalize` parses the output with `parseReviewResponse` (three outcomes):
+   - `invalid` (empty, unparseable, a bare array, or `request_changes` with no comments) → node `failed`, artifact recorded with `posted: 0`, warning event.
+   - `clean` (`approve`, no comments) → node `done`, `posted: 0`, no host post.
+   - `commented` → posts each comment not already in `postedHashes` (sha256 over `{ mrIid, style, file, line, body }`), honoring `max_comments` and `comment_style` (`summary` posts one combined note). Progress is persisted to the artifact after every post, so a mid-run failure never double-posts on retry.
 
 ### Chat lifecycle (`chat` / `converse`)
 
@@ -171,8 +172,9 @@ No approval gate — a `done` review calls `advanceFrom('review')`, which activa
 
 ### Output / artifacts
 
-- `ReviewOutput`: `{ comments: number, branchName? }` — count of comments posted this run.
-- Artifact kind `review`, content = raw agent output, meta `{ posted, postedHashes, mrIid, branchName }`. `postedHashes` is the idempotency ledger read back on the next run.
+- `ReviewOutput`: `{ comments: number, verdict?, branchName? }` — count of comments posted this run, and the run's verdict (`verdict` is absent only on a run that failed before a contract-valid response existed).
+- Artifact kind `review`, content = the normalized `{ verdict, comments }` response, meta `{ posted, postedHashes, mrIid, review_verdict, branchName }`. `postedHashes` is the idempotency ledger read back on the next run.
+- A clean review (`verdict: "approve"`, no comments) is a `done` run that posts nothing; the panel renders it as the "Nothing to flag" state rather than an empty thread list.
 
 ### Side effects
 
@@ -187,18 +189,21 @@ No approval gate — a `done` review calls `advanceFrom('review')`, which activa
 
 ### Response shapes
 
-The contract block requires a JSON array only, no prose:
+The contract block requires one JSON object only, no prose:
 
 ```json
-[{"file": "path", "line": 12, "body": "comment"}]
+{"verdict": "approve", "comments": []}
+{"verdict": "request_changes", "comments": [{"file": "path", "line": 12, "body": "comment"}]}
 ```
 
-Validated by `reviewCommentItemSchema` (`file` / `line` optional, `body` non-empty). "If none, return `[]`."
+Validated by `ReviewResponseSchema`: `verdict` is required (the closed `REVIEW_VERDICT` set — `approve` / `request_changes`) and `comments` is a list of `reviewCommentItemSchema` items (`file` / `line` optional, `body` non-empty).
+
+A clean review is `{"verdict": "approve", "comments": []}` — the verdict is what says "nothing to flag", so a bare `[]` stays unambiguously a contract miss instead of reading as a quiet pass.
 
 ### Retries and guards
 
-- Empty output → warning log, run completes with `comments: 0`.
-- Non-empty unparseable output → node `failed`; the developer retries via `retry` or a chat message.
+- Empty output, unparseable output, a bare comment array, or `request_changes` with no comments → node `failed` (the run did not answer the contract); the developer retries via `retry` or a chat message.
+- `approve` with no comments → node `done`, `comments: 0`, no host post.
 - Reruns skip any comment whose hash is already in `postedHashes` (covers both duplicate AI findings and retry-after-partial-failure).
 - Ingestion never re-opens a thread the agent resolved (`resolved_by = 'agent'` guard in `commentStore.ingest`).
 

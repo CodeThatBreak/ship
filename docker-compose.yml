@@ -11,7 +11,10 @@ services:
       POSTGRES_PASSWORD: devflow
       POSTGRES_DB: devflow
     ports:
-      - "5432:5432"
+      # Host port is configurable: 5432 is already taken by other local stacks
+      # on some machines. Set DEVFLOW_PG_PORT in `.env` and point DATABASE_URL
+      # (and TEST_DATABASE_URL) at the same port.
+      - "${DEVFLOW_PG_PORT:-5432}:5432"
     volumes:
       - devflow-pgdata:/var/lib/postgresql/data
       - ./scripts/db/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro

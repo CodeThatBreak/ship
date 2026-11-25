@@ -4,9 +4,11 @@
  * overhaul step 05; the step-00 red markers are flipped).
  *
  * Current fallbacks under test (each cited in the step-00 file):
- *  - review empty reply ⇒ today a silent done-with-0-comments
- *    (`reviewNode.ts:177-190`: the failed branch needs a non-empty body that
- *    still doesn't parse; an empty body falls through to done-0).
+ *  - review reply that is empty, unparseable, or a bare array ⇒ failed (the
+ *    response contract is `{verdict, comments}`, so "clean" must be said with
+ *    `approve`; a missing answer never reads as a quiet pass).
+ *    `reviewNode.ts` `reviewOutcome` — the clean branch is `approve` + no
+ *    comments, which is a DONE run that posts nothing.
  *  - decision case-mismatched label ⇒ today case-insensitively salvaged
  *    (`decisionNode.ts:334-336`).
  *  - agent markdown empty ⇒ today the fabricated `"(empty response)"`
@@ -37,6 +39,12 @@ await harness.registerRepoWithLocalPath(fs.mkdtempSync(path.join(os.tmpdir(), "d
 
 beforeAll(resetTestDatabase);
 
+// the git-host registry is process-global and forbids duplicate kinds — one
+// registration per test file (the fakeGitHost helper's convention); each test
+// clears the call log rather than re-registering
+const { registerFakeGitHost } = await import("../helpers/fakeGitHost");
+const gitHost = registerFakeGitHost();
+
 /** An SDLC flow with the review node ready to run (MR linkage faked). */
 const seedReviewReady = async () => {
   const flowId = await harness.seedSdlcFlow();
@@ -47,14 +55,13 @@ const seedReviewReady = async () => {
 };
 
 describe("agent output silent defaults become loud failures", () => {
-  test("review empty reply ⇒ failed (today a silent done-with-0)", async () => {
+  test("review empty reply ⇒ failed (a missing answer is never done-with-0)", async () => {
     const { flowId } = await seedReviewReady();
-    // fake the MR + its host so resolveMr/getChanges/getChangeRequest succeed
-    const { registerFakeGitHost } = await import("../helpers/fakeGitHost");
-    const gitHost = registerFakeGitHost();
+    // the MR + its host so resolveMr/getChanges/getChangeRequest succeed
     gitHost.addChangeRequest({ number: 1, sha: "sha_1" });
     await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-fallback", flowId);
 
+    agent.drainQueue();
     agent.pushRun({ status: "finished", result: "   " }); // empty reply
     await harness.runStage(flowId, "review");
 
@@ -62,6 +69,33 @@ describe("agent output silent defaults become loud failures", () => {
     expect(await harness.nodeStatus(flowId, "review")).toBe("failed");
   }, 15_000);
 
+  test("review bare [] ⇒ failed (the verdict is what says 'clean')", async () => {
+    const { flowId } = await seedReviewReady();
+    gitHost.addChangeRequest({ number: 1, sha: "sha_1" });
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-fallback", flowId);
+
+    agent.drainQueue();
+    agent.pushRun({ status: "finished", result: "[]" }); // the old clean shape
+    await harness.runStage(flowId, "review");
+
+    // an unqualified empty list never masquerades as an approval
+    expect(await harness.nodeStatus(flowId, "review")).toBe("failed");
+  }, 15_000);
+
+  test("review approve with no comments ⇒ done, posting nothing", async () => {
+    const { flowId } = await seedReviewReady();
+    gitHost.addChangeRequest({ number: 1, sha: "sha_1" });
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-fallback", flowId);
+    const postsBefore = gitHost.calls.length;
+
+    agent.drainQueue();
+    agent.pushRun({ status: "finished", result: '{"verdict":"approve","comments":[]}' });
+    await harness.runStage(flowId, "review");
+
+    // a clean review is a real outcome: done, zero host posts
+    expect(await harness.nodeStatus(flowId, "review")).toBe("done");
+    expect(gitHost.calls.length).toBe(postsBefore);
+  }, 15_000);
   test("decision case-mismatched label ⇒ failed (today case-insensitively salvaged)", async () => {
     const flowId = await harness.seedInlineFlow(
       [
